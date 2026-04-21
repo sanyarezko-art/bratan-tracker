@@ -1,7 +1,7 @@
 // БРАТАН-трекер — client logic
 // Runs fully in the browser. No analytics, no cookies, no backend.
 
-import WebTorrent from 'webtorrent';
+import WebTorrent from 'https://cdn.jsdelivr.net/npm/webtorrent@2.5.1/dist/webtorrent.min.js';
 // Expose for devtools / quick scripting. Not used elsewhere in the code.
 window.WebTorrent = WebTorrent;
 
