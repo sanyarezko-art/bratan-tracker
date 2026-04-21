@@ -12,6 +12,22 @@ const WT_TRACKERS = [
   'wss://tracker.files.fm:7073/announce',
 ];
 
+// Public STUN servers help WebRTC punch through symmetric-ish NATs.
+// No TURN by design — TURN would relay traffic through a third party.
+const RTC_CONFIG = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun.cloudflare.com:3478' },
+  ],
+  iceCandidatePoolSize: 4,
+};
+
+// Per-torrent knobs. `maxConns` caps WebRTC peers in total on the client;
+// `maxWebConns` is for HTTP webseeds per torrent (harmless if none).
+const CLIENT_MAX_CONNS = 96;
+const TORRENT_MAX_WEB_CONNS = 16;
+
 const $ = (sel, el = document) => el.querySelector(sel);
 const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
 
@@ -114,7 +130,13 @@ function ensureClient() {
     if (banner) banner.hidden = false;
     throw new Error('WebTorrent library failed to load');
   }
-  client = new WebTorrent({ tracker: { announce: WT_TRACKERS } });
+  client = new WebTorrent({
+    maxConns: CLIENT_MAX_CONNS,
+    tracker: {
+      announce: WT_TRACKERS,
+      rtcConfig: RTC_CONFIG,
+    },
+  });
   client.on('error', (err) => {
     console.warn('WebTorrent error:', err?.message || err);
   });
@@ -239,16 +261,27 @@ function renderTorrentCard(el, torrent) {
     statsEl.textContent = parts.join(' · ');
   };
 
-  const onMeta = () => { setMagnet(); setName(); renderFiles(); };
-  const onDone = () => updateProgress();
-  const onWire = () => updateProgress();
-  const onTick = setInterval(updateProgress, 1000);
+  // `download`/`upload` fire per chunk — can be hundreds of times per second.
+  // Coalesce all progress-related events into a single DOM update per animation
+  // frame. rAF also pauses in hidden tabs, so we stop burning cycles there.
+  let rafPending = false;
+  const scheduleProgress = () => {
+    if (rafPending) return;
+    rafPending = true;
+    requestAnimationFrame(() => { rafPending = false; updateProgress(); });
+  };
+  const onMeta = () => { setMagnet(); setName(); renderFiles(); scheduleProgress(); };
 
   torrent.on('metadata', onMeta);
   torrent.on('ready', onMeta);
-  torrent.on('done', onDone);
-  torrent.on('wire', onWire);
-  torrent.on('noPeers', updateProgress);
+  torrent.on('done', scheduleProgress);
+  torrent.on('wire', scheduleProgress);
+  torrent.on('noPeers', scheduleProgress);
+  torrent.on('download', scheduleProgress);
+  torrent.on('upload', scheduleProgress);
+  // Safety-net slow tick so ETA / peer count still refresh when nothing is
+  // actively flowing (e.g. all peers choked us).
+  const onTick = setInterval(scheduleProgress, 1000);
 
   // Initial render (seeding case: metadata already present)
   if (torrent.name) onMeta();
@@ -382,7 +415,10 @@ function addMagnet(magnetURI) {
   }
   let torrent;
   try {
-    torrent = cli.add(magnetURI, { announce: WT_TRACKERS });
+    torrent = cli.add(magnetURI, {
+      announce: WT_TRACKERS,
+      maxWebConns: TORRENT_MAX_WEB_CONNS,
+    });
   } catch (err) {
     alert('Не удалось добавить magnet: ' + (err?.message || err));
     return;
@@ -395,7 +431,10 @@ function seedFiles(fileList) {
   const files = [...fileList];
   if (!files.length) return;
   const cli = ensureClient();
-  const torrent = cli.seed(files, { announce: WT_TRACKERS });
+  const torrent = cli.seed(files, {
+    announce: WT_TRACKERS,
+    maxWebConns: TORRENT_MAX_WEB_CONNS,
+  });
   mountTorrentEl(torrent);
   torrent.on('error', (err) => console.warn('seed error:', err?.message || err));
 }
