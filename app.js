@@ -152,6 +152,8 @@ function updateGlobalStats() {
   $('#stat-up').textContent = fmtRate(client.uploadSpeed || 0);
   const ratio = client.ratio || 0;
   $('#stat-ratio').textContent = ratio.toFixed(2);
+  const pill = document.getElementById('torrents-count-pill');
+  if (pill) pill.textContent = String(torrents.size);
 }
 setInterval(updateGlobalStats, 1000);
 
@@ -560,16 +562,135 @@ function initHashShare() {
   tryLoad();
 }
 
+// Tab switcher. Hash routes that don't look like parameters (`#p2p`,
+// `#torrents`) pick a tab. Everything else (`#magnet=...`, `#add`) is handled
+// by other init* functions and we keep the last active tab.
+const TAB_HASHES = new Set(['p2p', 'torrents']);
+function activateTab(name, { push = false } = {}) {
+  if (!TAB_HASHES.has(name)) name = 'p2p';
+  const tabs = $$('.tabs .tab');
+  const panels = $$('.tab-panel');
+  tabs.forEach((t) => {
+    const active = t.dataset.tab === name;
+    t.setAttribute('aria-selected', active ? 'true' : 'false');
+    t.tabIndex = active ? 0 : -1;
+  });
+  panels.forEach((p) => {
+    const active = p.dataset.panel === name;
+    p.classList.toggle('active', active);
+    p.hidden = !active;
+  });
+  positionTabIndicator();
+  if (push && location.hash.replace(/^#/, '') !== name) {
+    history.replaceState(null, '', '#' + name);
+  }
+}
+function positionTabIndicator() {
+  const bar = $('.tabs');
+  const ind = $('.tab-indicator');
+  const active = $('.tabs .tab[aria-selected="true"]');
+  if (!bar || !ind || !active) return;
+  const barRect = bar.getBoundingClientRect();
+  const aRect = active.getBoundingClientRect();
+  const left = aRect.left - barRect.left - 4;
+  ind.style.width = aRect.width + 'px';
+  ind.style.transform = `translateX(${left}px)`;
+}
+function initTabs() {
+  const tabs = $$('.tabs .tab');
+  tabs.forEach((t) => {
+    t.addEventListener('click', (e) => {
+      e.preventDefault();
+      activateTab(t.dataset.tab, { push: true });
+    });
+  });
+  // Initial: respect hash if it's a tab hash; otherwise default to p2p.
+  const h = location.hash.replace(/^#/, '');
+  activateTab(TAB_HASHES.has(h) ? h : 'p2p');
+  window.addEventListener('hashchange', () => {
+    const hh = location.hash.replace(/^#/, '');
+    if (TAB_HASHES.has(hh)) activateTab(hh);
+  });
+  window.addEventListener('resize', positionTabIndicator);
+  // After web fonts / any late layout — re-pin indicator.
+  setTimeout(positionTabIndicator, 0);
+  setTimeout(positionTabIndicator, 300);
+}
+
+// Bridge status: probe BRIDGE_URL/health and reflect state in the Torrents tab.
+// When the bridge is not yet deployed, we stay in "warn / not deployed" mode
+// and keep the magnet form disabled.
+const BRIDGE_URL = window.__BRIDGE_URL__ || '';
+async function probeBridge() {
+  const dot = $('#bridge-dot');
+  const label = $('#bridge-status-label');
+  const pill = $('#bridge-pill');
+  const form = $('#bridge-magnet-form');
+  const setState = (state, text) => {
+    if (label) label.textContent = 'bridge · ' + text;
+    if (dot) {
+      dot.classList.remove('pulse-dot-warn', 'pulse-dot-bad');
+      if (state === 'warn') dot.classList.add('pulse-dot-warn');
+      if (state === 'bad')  dot.classList.add('pulse-dot-bad');
+    }
+    if (pill) {
+      pill.className = 'pill ' + (state === 'ok' ? 'pill-ok' : state === 'bad' ? 'pill-bad' : 'pill-warn');
+      pill.textContent = state === 'ok' ? 'онлайн' : state === 'bad' ? 'недоступен' : 'пока не задеплоен';
+    }
+    if (form) {
+      const disabled = state !== 'ok';
+      form.querySelectorAll('input, button').forEach((el) => { el.disabled = disabled; });
+    }
+  };
+  if (!BRIDGE_URL) { setState('warn', 'ещё не подключён'); return; }
+  try {
+    const r = await fetch(BRIDGE_URL.replace(/\/$/, '') + '/health', { cache: 'no-store' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    setState('ok', 'онлайн');
+  } catch {
+    setState('bad', 'недоступен');
+  }
+}
+function initBridgeForm() {
+  const form = $('#bridge-magnet-form');
+  if (!form) return;
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    if (!BRIDGE_URL) {
+      alert('Мост ещё не поднят. Пока используй вкладку «Личный обмен».');
+      return;
+    }
+    const input = $('#bridge-magnet-input');
+    const val = input.value.trim();
+    if (!val.startsWith('magnet:')) {
+      alert('Нужна magnet-ссылка.');
+      return;
+    }
+    // Pass the magnet to the bridge so it joins the swarm; then add locally so
+    // the browser can pick up pieces through the WSS tracker.
+    fetch(BRIDGE_URL.replace(/\/$/, '') + '/api/torrents', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ magnet: val }),
+    }).catch((err) => console.warn('bridge add failed:', err));
+    addMagnet(val);
+    input.value = '';
+  });
+}
+
 function initBuildId() {
   $('#build-id').textContent = new Date().toISOString().slice(0, 16).replace('T', ' ');
 }
 
 function bootstrap() {
   initBuildId();
+  initTabs();
   initDropZone();
   initMagnetForm();
+  initBridgeForm();
   initCatalog();
   initHashShare();
+  probeBridge();
 }
 
 if (document.readyState === 'loading') {

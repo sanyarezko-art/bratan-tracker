@@ -19,6 +19,7 @@
                  form-action 'none';" />
   <title>БРАТАН-трекер — торренты в браузере</title>
   <meta name="description" content="Анонимный WebTorrent-клиент и каталог магнет-ссылок. Работает полностью в браузере, без сервера, без логов." />
+  <meta name="theme-color" content="#0b0f14" />
   <link rel="icon" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='14' fill='%23111827'/><text x='50%25' y='58%25' font-family='system-ui,Arial' font-size='28' font-weight='800' text-anchor='middle' fill='%236ee7b7'>Б</text></svg>" />
   <link rel="stylesheet" href="styles.css" />
   <link rel="dns-prefetch" href="https://cdn.jsdelivr.net" />
@@ -34,6 +35,12 @@
         referrerpolicy="no-referrer" />
 </head>
 <body>
+  <div class="aurora" aria-hidden="true">
+    <span class="aurora-blob aurora-blob-a"></span>
+    <span class="aurora-blob aurora-blob-b"></span>
+    <span class="aurora-blob aurora-blob-c"></span>
+  </div>
+
   <noscript>
     <div class="noscript">
       Для работы нужен JavaScript — всё крутится прямо в браузере.
@@ -43,99 +50,167 @@
   <header class="topbar">
     <div class="brand">
       <span class="logo" aria-hidden="true">Б</span>
-      <h1>БРАТАН-трекер</h1>
-      <span class="tag">статика · в браузере · без логов</span>
+      <div class="brand-text">
+        <h1>БРАТАН-трекер</h1>
+        <span class="tag">статика · в браузере · без логов</span>
+      </div>
     </div>
-    <nav class="nav">
-      <a href="#add">Открыть</a>
-      <a href="#create">Создать</a>
-      <a href="#catalog">Каталог</a>
-      <a href="#safety">Безопасность</a>
-      <a href="#about">О проекте</a>
+    <nav class="tabs" role="tablist" aria-label="Режимы работы">
+      <a class="tab" data-tab="p2p" href="#p2p" role="tab" aria-selected="true" tabindex="0">
+        <span class="tab-dot" aria-hidden="true"></span>
+        <span class="tab-label">Личный обмен</span>
+      </a>
+      <a class="tab" data-tab="torrents" href="#torrents" role="tab" aria-selected="false" tabindex="-1">
+        <span class="tab-dot" aria-hidden="true"></span>
+        <span class="tab-label">Торренты</span>
+      </a>
+      <span class="tab-indicator" aria-hidden="true"></span>
     </nav>
   </header>
 
   <main>
-    <section class="hero">
-      <h2>Торренты прямо в браузере. Без сервера. Без логов.</h2>
-      <p>
-        Это статический сайт на GitHub Pages. Всё — клиент, «трекер», передача данных
-        — происходит в твоём браузере по WebRTC через публичные WebSocket-трекеры
-        WebTorrent. У сайта нет бэкенда, нет аккаунтов, нет кук, нет аналитики,
-        нечего логировать в принципе.
-      </p>
-      <div class="hero-actions">
-        <a class="btn primary" href="#add">Открыть magnet</a>
-        <a class="btn" href="#create">Создать торрент</a>
-        <a class="btn ghost" href="#catalog">Каталог</a>
-      </div>
+    <!-- ===================== TAB: P2P ===================== -->
+    <section class="tab-panel active" data-panel="p2p" role="tabpanel" aria-label="Личный обмен">
+      <section class="hero hero-p2p">
+        <div class="hero-pill"><span class="pulse-dot"></span> P2P · только браузеры</div>
+        <h2>Личный обмен файлами <span class="grad-text">прямо между вкладками</span></h2>
+        <p>
+          Брось файл — клиент соберёт торрент, откроет WebRTC-канал к тому, кто открыл
+          твою share-ссылку, и байты полетят <strong>напрямую</strong>. Никакого сервера
+          посередине, ничего не логируется, кука даже не ставится.
+        </p>
+      </section>
+
+      <section id="create" class="card card-create">
+        <div class="card-head">
+          <h3>Создать торрент</h3>
+          <span class="pill pill-ok">безопасно · только браузер</span>
+        </div>
+        <p class="muted">
+          Перетяни файлы сюда или выбери — magnet и share-ссылка появятся ниже.
+          Держи вкладку открытой, пока хочешь раздавать.
+        </p>
+        <div id="drop-zone" class="drop-zone" aria-label="Брось файлы сюда">
+          <div class="drop-inner">
+            <svg class="drop-ico" viewBox="0 0 24 24" width="42" height="42" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            <div class="drop-text">Брось файлы сюда</div>
+            <div class="drop-sub muted">или</div>
+            <label class="btn">
+              <input id="seed-file-input" type="file" multiple hidden />
+              Выбрать файлы…
+            </label>
+            <div class="muted small">Файлы не загружаются на сервер — они раздаются прямо из твоего браузера.</div>
+          </div>
+        </div>
+      </section>
+
+      <section id="add" class="card">
+        <div class="card-head">
+          <h3>Открыть чужой magnet или share-ссылку</h3>
+          <span class="pill pill-muted">без посредников</span>
+        </div>
+        <p class="muted">
+          Вставь magnet от друга или share-ссылку — файлы появятся ниже.
+        </p>
+        <form id="add-magnet-form" class="row">
+          <input
+            id="magnet-input"
+            type="text"
+            inputmode="url"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="magnet:?xt=urn:btih:… или https://…/#magnet=…"
+            aria-label="Magnet-ссылка"
+          />
+          <button type="submit" class="btn primary">Открыть</button>
+        </form>
+      </section>
     </section>
 
-    <section id="safety" class="safety">
-      <h3>Прочитай перед использованием</h3>
-      <ul>
-        <li>
-          <strong>Это не магическая анонимность.</strong> Как в любом торрент-клиенте,
-          твой IP виден пирам, с которыми браузер устанавливает WebRTC-соединение.
-          Если нужна анонимность — запускай через VPN или Tor Browser <em>до</em>
-          открытия сайта.
-        </li>
-        <li>
-          <strong>Мы ничего не храним.</strong> Репозиторий держит только JSON с
-          магнет-ссылками. Файлы идут напрямую между браузерами. У владельца сайта
-          нет ни доступа к контенту, ни IP-логов.
-        </li>
-        <li>
-          <strong>Соблюдай закон и авторские права.</strong> Не раздавай то, на что
-          у тебя нет прав.
-        </li>
-        <li>
-          <strong>Данные временные.</strong> Скачанные куски живут в памяти вкладки.
-          Закрыл вкладку — раздача остановилась, кэш очистился (если только ты не
-          сохранил файлы на диск явно).
-        </li>
-      </ul>
+    <!-- ===================== TAB: Torrents ===================== -->
+    <section class="tab-panel" data-panel="torrents" role="tabpanel" aria-label="Классические торренты" hidden>
+      <section class="hero hero-torrents">
+        <div class="hero-pill hero-pill-bridge">
+          <span id="bridge-dot" class="pulse-dot pulse-dot-warn"></span>
+          <span id="bridge-status-label">bridge · проверяем…</span>
+        </div>
+        <h2>Классические торренты <span class="grad-text grad-text-alt">через мост</span></h2>
+        <p>
+          BitTorrent-swarm говорит по TCP/UDP/DHT, браузер так не умеет. Поэтому
+          маленький <strong>bridge-сервер</strong> (на Fly.io, бесплатный тир) общается с обычным
+          swarm-ом за тебя и отдаёт тебе куски по WebRTC. Ты получаешь «как десктоп»,
+          оставаясь в браузере.
+        </p>
+      </section>
+
+      <section id="bridge-card" class="card card-bridge">
+        <div class="card-head">
+          <h3>Статус моста</h3>
+          <span id="bridge-pill" class="pill pill-warn">пока не задеплоен</span>
+        </div>
+        <p class="muted">
+          Мост даёт браузеру доступ к классическому swarm-у (TCP/UDP/DHT), всё
+          остальное делаешь ты сам. Когда он подключён — в этой вкладке можно качать
+          обычные торренты (ISO-шники дистров, CC-контент и т.п.).
+        </p>
+        <ul class="bridge-notes muted small">
+          <li>Мост <strong>видит</strong>, какие magnet-и ты открываешь, и трафик к ним — в отличие от вкладки «Личный обмен». Если нужна анонимность — открывай сайт через VPN/Tor.</li>
+          <li>Свободный тир Fly.io ограничен 160 ГБ egress/мес — большие ISO кешируются и делятся между всеми, кто их запросил.</li>
+          <li>Мост — open-source, код в репо, логов не пишет.</li>
+        </ul>
+      </section>
+
+      <section id="torrents-add" class="card">
+        <div class="card-head">
+          <h3>Открыть торрент через мост</h3>
+          <span class="pill pill-muted">TCP · UDP · DHT</span>
+        </div>
+        <p class="muted">
+          Вставь любой magnet — мост попробует найти сидов в обычном swarm-е
+          и отдаст тебе куски по WebRTC.
+        </p>
+        <form id="bridge-magnet-form" class="row">
+          <input
+            id="bridge-magnet-input"
+            type="text"
+            inputmode="url"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="magnet:?xt=urn:btih:…"
+            aria-label="Magnet через мост"
+            disabled
+          />
+          <button type="submit" class="btn primary" disabled>Открыть</button>
+        </form>
+        <div class="muted small">Кнопка разблокируется, когда мост будет поднят.</div>
+      </section>
+
+      <section id="catalog" class="catalog card">
+        <div class="card-head catalog-head">
+          <h3>Каталог</h3>
+          <input
+            id="catalog-search"
+            type="search"
+            placeholder="Поиск по каталогу…"
+            aria-label="Поиск по каталогу"
+          />
+        </div>
+        <p class="muted">
+          Собранные сообществом магнет-ссылки. Чтобы добавить свою — открой pull request
+          в <code>catalog.json</code>. Детали — в
+          <a id="repo-link" href="https://github.com/sanyarezko-art/bratan-tracker" rel="noopener">репозитории</a>.
+        </p>
+        <div id="catalog-list" class="catalog-list"></div>
+        <p class="muted small" id="catalog-empty" hidden>Ничего не найдено.</p>
+      </section>
     </section>
 
-    <section id="add" class="card">
-      <h3>Открыть торрент</h3>
-      <p class="muted">
-        Вставь magnet-ссылку или share-ссылку — файлы появятся ниже, можно смотреть
-        прямо в браузере или сохранять на диск.
-      </p>
-      <form id="add-magnet-form" class="row">
-        <input
-          id="magnet-input"
-          type="text"
-          inputmode="url"
-          autocomplete="off"
-          spellcheck="false"
-          placeholder="magnet:?xt=urn:btih:… или https://…/#magnet=…"
-          aria-label="Magnet-ссылка"
-        />
-        <button type="submit" class="btn primary">Открыть</button>
-      </form>
-    </section>
-
-    <section id="create" class="card">
-      <h3>Создать торрент</h3>
-      <p class="muted">
-        Брось файлы или папку сюда — клиент всё посчитает, начнёт раздавать и
-        выдаст magnet. Вкладку держи открытой, пока хочешь раздавать.
-      </p>
-      <div id="drop-zone" class="drop-zone" aria-label="Брось файлы сюда">
-        <svg class="drop-ico" viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-        <span>Брось файлы сюда</span>
-        <label class="btn">
-          <input id="seed-file-input" type="file" multiple hidden />
-          Выбрать файлы…
-        </label>
-        <span class="muted small">Файлы не загружаются на сервер — они раздаются прямо из твоего браузера.</span>
-      </div>
-    </section>
-
+    <!-- ===================== Shared: Active torrents ===================== -->
     <section class="card" id="torrents-card">
-      <h3>Активные торренты</h3>
+      <div class="card-head">
+        <h3>Активные раздачи и загрузки</h3>
+        <span id="torrents-count-pill" class="pill pill-muted">0</span>
+      </div>
       <div class="client-stats" id="client-stats">
         <span><strong>Пиры:</strong> <span id="stat-peers">0</span></span>
         <span><strong>↓</strong> <span id="stat-down">0 Б/с</span></span>
@@ -147,40 +222,46 @@
       </div>
     </section>
 
-    <section id="catalog" class="catalog card">
-      <div class="catalog-head">
-        <h3>Каталог</h3>
-        <input
-          id="catalog-search"
-          type="search"
-          placeholder="Поиск по каталогу…"
-          aria-label="Поиск по каталогу"
-        />
-      </div>
-      <p class="muted">
-        Сообществом собранные магнет-ссылки. Чтобы добавить свою — открой pull request
-        в <code>catalog.json</code>. Детали — в
-        <a id="repo-link" href="https://github.com/sanyarezko-art/bratan-tracker" rel="noopener">репозитории</a>.
-      </p>
-      <div id="catalog-list" class="catalog-list"></div>
-      <p class="muted small" id="catalog-empty" hidden>Ничего не найдено.</p>
+    <section id="safety" class="safety">
+      <h3>Прочитай перед использованием</h3>
+      <ul>
+        <li>
+          <strong>Это не магическая анонимность.</strong> Как в любом торрент-клиенте,
+          IP виден пирам, с которыми браузер устанавливает соединение.
+          Если нужна анонимность — запускай через VPN или Tor Browser <em>до</em>
+          открытия сайта.
+        </li>
+        <li>
+          <strong>Мы ничего не храним.</strong> Репозиторий держит только JSON-каталог.
+          Файлы идут напрямую между браузерами (в режиме «Личный обмен») или через
+          мост (в режиме «Торренты»). Логов нет.
+        </li>
+        <li>
+          <strong>Соблюдай закон и авторские права.</strong> Не раздавай то, на что
+          у тебя нет прав.
+        </li>
+        <li>
+          <strong>Данные временные.</strong> Скачанные куски живут в памяти вкладки.
+          Закрыл вкладку — раздача остановилась, кэш очистился.
+        </li>
+      </ul>
     </section>
 
     <section id="about" class="card">
       <h3>О проекте</h3>
       <p>
-        <strong>БРАТАН-трекер</strong> — это чисто статическая страница на GitHub
-        Pages. Передача данных идёт peer-to-peer через
-        <a href="https://webtorrent.io" rel="noopener">WebTorrent</a> (WebRTC).
-        Сигналинг — публичные WebSocket-трекеры
-        (<code>wss://tracker.openwebtorrent.com</code>,
-        <code>wss://tracker.webtorrent.dev</code>,
-        <code>wss://tracker.files.fm:7073/announce</code>).
+        <strong>БРАТАН-трекер</strong> — статический фронт на GitHub Pages
+        (<a href="https://webtorrent.io" rel="noopener">WebTorrent</a>/WebRTC),
+        плюс маленький <strong>bridge-сервис</strong> на Fly.io для связи с
+        классическим BitTorrent-swarm-ом. Сигналинг — публичные WSS-трекеры
+        (<code>tracker.openwebtorrent.com</code>,
+        <code>tracker.webtorrent.dev</code>,
+        <code>tracker.btorrent.xyz</code>,
+        <code>tracker.files.fm:7073</code>) плюс наш собственный, когда мост поднят.
       </p>
       <p>
         Сайт не шлёт аналитику, не ставит куки, не грузит сторонние шрифты. Внешний
-        код — только библиотеки WebTorrent и QR-генератор с jsdelivr, пришпиленные
-        по Subresource Integrity.
+        код — только WebTorrent и QR-генератор с jsdelivr, пришпиленные по Subresource Integrity.
       </p>
       <p class="muted small">
         Исходники: <a href="https://github.com/sanyarezko-art/bratan-tracker" rel="noopener">github.com/sanyarezko-art/bratan-tracker</a> · Лицензия MIT.
