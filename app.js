@@ -12,15 +12,39 @@ const WT_TRACKERS = [
   'wss://tracker.files.fm:7073/announce',
 ];
 
-// Public STUN servers help WebRTC punch through symmetric-ish NATs.
-// No TURN by design — TURN would relay traffic through a third party.
+// STUN helps WebRTC punch through cone NATs directly. TURN is a relay of
+// last resort for peers behind restrictive / symmetric NATs (mobile carriers,
+// office firewalls) where direct hole-punching fails. The relay only sees
+// the DTLS-encrypted wire — it cannot read file contents — but it does see
+// that a connection exists. We stuff several free public relays so the
+// browser can fall through them if one is saturated.
 const RTC_CONFIG = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
     { urls: 'stun:stun.cloudflare.com:3478' },
+    { urls: 'stun:global.stun.twilio.com:3478' },
+    {
+      urls: [
+        'turn:openrelay.metered.ca:80',
+        'turn:openrelay.metered.ca:443',
+        'turn:openrelay.metered.ca:443?transport=tcp',
+      ],
+      username: 'openrelayproject',
+      credential: 'openrelayproject',
+    },
+    {
+      urls: [
+        'turn:global.relay.metered.ca:80',
+        'turn:global.relay.metered.ca:443',
+        'turn:global.relay.metered.ca:443?transport=tcp',
+      ],
+      username: 'openrelayproject',
+      credential: 'openrelayproject',
+    },
   ],
   iceCandidatePoolSize: 4,
+  iceTransportPolicy: 'all',
 };
 
 // Per-torrent knobs. `maxConns` caps WebRTC peers in total on the client;
@@ -320,9 +344,14 @@ function renderTorrentCard(el, torrent) {
     try { torrent.destroy(); } catch {}
     el.remove();
     if (!torrents.size) $('#torrents-empty')?.removeAttribute('hidden');
+    savePersistedMagnets();
   });
 
   torrents.set(torrent.infoHash, { torrent, el, cleanup: () => clearInterval(onTick) });
+  // Metadata may arrive after add() — re-persist once we know the full magnet.
+  torrent.once('metadata', savePersistedMagnets);
+  torrent.once('ready', savePersistedMagnets);
+  savePersistedMagnets();
 }
 
 function fileToBlob(file) {
@@ -562,119 +591,41 @@ function initHashShare() {
   tryLoad();
 }
 
-// Tab switcher. Hash routes that don't look like parameters (`#p2p`,
-// `#torrents`) pick a tab. Everything else (`#magnet=...`, `#add`) is handled
-// by other init* functions and we keep the last active tab.
-const TAB_HASHES = new Set(['p2p', 'torrents']);
-function activateTab(name, { push = false } = {}) {
-  if (!TAB_HASHES.has(name)) name = 'p2p';
-  const tabs = $$('.tabs .tab');
-  const panels = $$('.tab-panel');
-  tabs.forEach((t) => {
-    const active = t.dataset.tab === name;
-    t.setAttribute('aria-selected', active ? 'true' : 'false');
-    t.tabIndex = active ? 0 : -1;
-  });
-  panels.forEach((p) => {
-    const active = p.dataset.panel === name;
-    p.classList.toggle('active', active);
-    p.hidden = !active;
-  });
-  positionTabIndicator();
-  if (push && location.hash.replace(/^#/, '') !== name) {
-    history.replaceState(null, '', '#' + name);
-  }
+// Persist the list of active magnets so the session survives a reload.
+// WebTorrent's in-memory chunk store dies with the tab, so after a reload
+// each magnet is re-added from scratch — peers are rediscovered and pieces
+// are re-fetched. That's resume in the "you won't have to paste the link
+// again" sense, not true chunk-level resume (which would require a custom
+// IndexedDB chunk store — tracked separately).
+const PERSIST_KEY = 'bratan.activeMagnets.v1';
+function loadPersistedMagnets() {
+  try {
+    const raw = localStorage.getItem(PERSIST_KEY);
+    if (!raw) return [];
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr.filter((s) => typeof s === 'string' && s.startsWith('magnet:')) : [];
+  } catch { return []; }
 }
-function positionTabIndicator() {
-  const bar = $('.tabs');
-  const ind = $('.tab-indicator');
-  const active = $('.tabs .tab[aria-selected="true"]');
-  if (!bar || !ind || !active) return;
-  const barRect = bar.getBoundingClientRect();
-  const aRect = active.getBoundingClientRect();
-  const left = aRect.left - barRect.left - 4;
-  ind.style.width = aRect.width + 'px';
-  ind.style.transform = `translateX(${left}px)`;
-}
-function initTabs() {
-  const tabs = $$('.tabs .tab');
-  tabs.forEach((t) => {
-    t.addEventListener('click', (e) => {
-      e.preventDefault();
-      activateTab(t.dataset.tab, { push: true });
-    });
-  });
-  // Initial: respect hash if it's a tab hash; otherwise default to p2p.
-  const h = location.hash.replace(/^#/, '');
-  activateTab(TAB_HASHES.has(h) ? h : 'p2p');
-  window.addEventListener('hashchange', () => {
-    const hh = location.hash.replace(/^#/, '');
-    if (TAB_HASHES.has(hh)) activateTab(hh);
-  });
-  window.addEventListener('resize', positionTabIndicator);
-  // After web fonts / any late layout — re-pin indicator.
-  setTimeout(positionTabIndicator, 0);
-  setTimeout(positionTabIndicator, 300);
+function savePersistedMagnets() {
+  try {
+    const arr = [...torrents.values()]
+      .map((r) => r.torrent?.magnetURI)
+      .filter((s) => typeof s === 'string' && s.startsWith('magnet:'));
+    localStorage.setItem(PERSIST_KEY, JSON.stringify(arr));
+  } catch { /* quota / private mode: ignore */ }
 }
 
-// Bridge status: probe BRIDGE_URL/health and reflect state in the Torrents tab.
-// When the bridge is not yet deployed, we stay in "warn / not deployed" mode
-// and keep the magnet form disabled.
-const BRIDGE_URL = window.__BRIDGE_URL__ || '';
-async function probeBridge() {
-  const dot = $('#bridge-dot');
-  const label = $('#bridge-status-label');
-  const pill = $('#bridge-pill');
-  const form = $('#bridge-magnet-form');
-  const setState = (state, text) => {
-    if (label) label.textContent = 'bridge · ' + text;
-    if (dot) {
-      dot.classList.remove('pulse-dot-warn', 'pulse-dot-bad');
-      if (state === 'warn') dot.classList.add('pulse-dot-warn');
-      if (state === 'bad')  dot.classList.add('pulse-dot-bad');
-    }
-    if (pill) {
-      pill.className = 'pill ' + (state === 'ok' ? 'pill-ok' : state === 'bad' ? 'pill-bad' : 'pill-warn');
-      pill.textContent = state === 'ok' ? 'онлайн' : state === 'bad' ? 'недоступен' : 'пока не задеплоен';
-    }
-    if (form) {
-      const disabled = state !== 'ok';
-      form.querySelectorAll('input, button').forEach((el) => { el.disabled = disabled; });
-    }
-  };
-  if (!BRIDGE_URL) { setState('warn', 'ещё не подключён'); return; }
-  try {
-    const r = await fetch(BRIDGE_URL.replace(/\/$/, '') + '/health', { cache: 'no-store' });
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    setState('ok', 'онлайн');
-  } catch {
-    setState('bad', 'недоступен');
-  }
-}
-function initBridgeForm() {
-  const form = $('#bridge-magnet-form');
-  if (!form) return;
-  form.addEventListener('submit', (e) => {
-    e.preventDefault();
-    if (!BRIDGE_URL) {
-      alert('Мост ещё не поднят. Пока используй вкладку «Личный обмен».');
-      return;
-    }
-    const input = $('#bridge-magnet-input');
-    const val = input.value.trim();
-    if (!val.startsWith('magnet:')) {
-      alert('Нужна magnet-ссылка.');
-      return;
-    }
-    // Pass the magnet to the bridge so it joins the swarm; then add locally so
-    // the browser can pick up pieces through the WSS tracker.
-    fetch(BRIDGE_URL.replace(/\/$/, '') + '/api/torrents', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ magnet: val }),
-    }).catch((err) => console.warn('bridge add failed:', err));
-    addMagnet(val);
-    input.value = '';
+// Service Worker: caches the static shell so repeat opens are instant, and
+// the page keeps working offline (useful when a peer is on the same LAN and
+// the carrier's captive portal is sketchy). No network requests to the SW
+// ever carry user file bytes — only the static HTML/CSS/JS.
+function initServiceWorker() {
+  if (!('serviceWorker' in navigator)) return;
+  // Pages deploys at /bratan-tracker/, local file:// and localhost deploy at /.
+  // Resolve the scope relative to the current page.
+  const swUrl = new URL('sw.js', document.baseURI).toString();
+  navigator.serviceWorker.register(swUrl).catch((err) => {
+    console.info('sw register skipped:', err?.message || err);
   });
 }
 
@@ -682,15 +633,31 @@ function initBuildId() {
   $('#build-id').textContent = new Date().toISOString().slice(0, 16).replace('T', ' ');
 }
 
+function restorePersistedMagnets() {
+  const magnets = loadPersistedMagnets();
+  if (!magnets.length) return;
+  // A magnet passed through the hash takes precedence — don't double-add it.
+  const fromHash = (() => {
+    const h = location.hash.replace(/^#/, '');
+    if (!h) return null;
+    const p = new URLSearchParams(h);
+    const m = p.get('magnet');
+    return m ? decodeURIComponent(m) : null;
+  })();
+  for (const m of magnets) {
+    if (fromHash && m === fromHash) continue;
+    addMagnet(m);
+  }
+}
+
 function bootstrap() {
   initBuildId();
-  initTabs();
   initDropZone();
   initMagnetForm();
-  initBridgeForm();
   initCatalog();
   initHashShare();
-  probeBridge();
+  restorePersistedMagnets();
+  initServiceWorker();
 }
 
 if (document.readyState === 'loading') {
