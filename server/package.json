@@ -1,0 +1,20 @@
+{
+  "name": "bratan-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "WebTorrent-hybrid bridge that speaks both TCP/UDP/DHT (classical BT swarm) and WSS/WebRTC (browsers). Exposes a tiny HTTP API and its own WSS tracker so browser clients of BRATAN-трекер can reach classical peers.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@roamhq/wrtc": "^0.10.0",
+    "bittorrent-tracker": "^11.2.2",
+    "webtorrent": "^2.8.5",
+    "ws": "^8.18.0"
+  }
+}

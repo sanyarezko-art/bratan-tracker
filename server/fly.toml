@@ -1,0 +1,32 @@
+# Fly.io config for bratan-bridge.
+# Free-tier-friendly: one shared-cpu-1x, 256 MB, auto-stop when idle.
+
+app = "bratan-bridge"
+primary_region = "fra"  # Frankfurt — good latency from RU/EU users.
+
+[build]
+
+[env]
+  NODE_ENV = "production"
+  BRATAN_MAX_TORRENTS = "6"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
+
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "30s"
+    method = "GET"
+    path = "/health"
+    protocol = "http"
+    timeout = "5s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
+  cpus = 1
