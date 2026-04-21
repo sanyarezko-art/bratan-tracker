@@ -211,15 +211,20 @@
     </article>
   </template>
 
-  <script src="https://cdn.jsdelivr.net/npm/webtorrent@2.5.1/dist/webtorrent.min.js"
-          integrity="sha384-ZAcDhhMA289AwPg3hhQVtWPkT5uXv7JhR762PImaYtqHM+Dnw2kvViMJMchSbZdb"
-          crossorigin="anonymous"
-          referrerpolicy="no-referrer"
-          onerror="document.getElementById('wt-load-error').hidden=false"></script>
   <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"
           integrity="sha384-8FWZA6BGMXhsfO+BLtrJK0We6gg5o1JyO8xQm6peWDEUs17ACA5ziE/NIAkl9z2k"
           crossorigin="anonymous"
           referrerpolicy="no-referrer"></script>
+  <script type="importmap">
+  {
+    "imports": {
+      "webtorrent": "https://cdn.jsdelivr.net/npm/webtorrent@2.5.1/dist/webtorrent.min.js"
+    },
+    "integrity": {
+      "https://cdn.jsdelivr.net/npm/webtorrent@2.5.1/dist/webtorrent.min.js": "sha384-ZAcDhhMA289AwPg3hhQVtWPkT5uXv7JhR762PImaYtqHM+Dnw2kvViMJMchSbZdb"
+    }
+  }
+  </script>
   <div id="wt-load-error" class="error" hidden>
     Не удалось загрузить WebTorrent из CDN. Проверь сеть и перезагрузи страницу.
   </div>

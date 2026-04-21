@@ -1,6 +1,10 @@
 // БРАТАН-трекер — client logic
 // Runs fully in the browser. No analytics, no cookies, no backend.
 
+import WebTorrent from 'webtorrent';
+// Expose for devtools / quick scripting. Not used elsewhere in the code.
+window.WebTorrent = WebTorrent;
+
 const WT_TRACKERS = [
   'wss://tracker.openwebtorrent.com',
   'wss://tracker.webtorrent.dev',
@@ -105,10 +109,12 @@ const torrents = new Map(); // infoHash -> { torrent, el, unsubs: [] }
 
 function ensureClient() {
   if (client) return client;
-  if (typeof window.WebTorrent !== 'function') {
+  if (typeof WebTorrent !== 'function') {
+    const banner = document.getElementById('wt-load-error');
+    if (banner) banner.hidden = false;
     throw new Error('WebTorrent library failed to load');
   }
-  client = new window.WebTorrent({ tracker: { announce: WT_TRACKERS } });
+  client = new WebTorrent({ tracker: { announce: WT_TRACKERS } });
   client.on('error', (err) => {
     console.warn('WebTorrent error:', err?.message || err);
   });
