@@ -18,7 +18,7 @@ contextBridge.exposeInMainWorld('bratan', {
 
   listTorrents: () => ipcRenderer.invoke('torrent:list'),
   seedPaths: (paths) => ipcRenderer.invoke('torrent:seed-paths', paths),
-  addMagnet: (magnet) => ipcRenderer.invoke('torrent:add-magnet', magnet),
+  addLink: (link) => ipcRenderer.invoke('torrent:add-link', link),
   removeTorrent: (infoHash) => ipcRenderer.invoke('torrent:remove', infoHash),
   pauseTorrent: (infoHash) => ipcRenderer.invoke('torrent:pause', infoHash),
   resumeTorrent: (infoHash) => ipcRenderer.invoke('torrent:resume', infoHash),
@@ -27,7 +27,13 @@ contextBridge.exposeInMainWorld('bratan', {
   openDownloadDir: () => ipcRenderer.invoke('open-download-dir'),
   revealFile: (absPath) => ipcRenderer.invoke('reveal-file', absPath),
 
+  me: () => ipcRenderer.invoke('identity:me'),
+  listContacts: () => ipcRenderer.invoke('contacts:list'),
+  addContact: (rec) => ipcRenderer.invoke('contacts:add', rec),
+  removeContact: (id) => ipcRenderer.invoke('contacts:remove', id),
+  decodeLink: (link) => ipcRenderer.invoke('share:decode', link),
+
   onTorrentUpdate: (handler) => subscribe('torrent:update', handler),
   onTorrentError: (handler) => subscribe('torrent:error', handler),
-  onDeepLinkMagnet: (handler) => subscribe('deep-link-magnet', handler),
+  onDeepLink: (handler) => subscribe('deep-link', handler),
 });

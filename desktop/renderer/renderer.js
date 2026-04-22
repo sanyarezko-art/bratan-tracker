@@ -4,7 +4,6 @@
 'use strict';
 
 const $ = (sel, el = document) => el.querySelector(sel);
-const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
 const api = window.bratan;
 
 // ---------- helpers ----------
@@ -28,20 +27,27 @@ function humanDuration(ms) {
 }
 
 async function copyText(text) {
-  try {
-    await navigator.clipboard.writeText(text);
-    return true;
-  } catch {
-    return false;
-  }
+  try { await navigator.clipboard.writeText(text); return true; } catch { return false; }
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[c]));
+}
+
+function shortId(id) {
+  if (!id || id.length < 12) return id || '';
+  return id.slice(0, 6) + '…' + id.slice(-6);
 }
 
 // ---------- state ----------
 
 /** infoHash -> { el, snapshot } */
 const cards = new Map();
+let myId = '';
 
-// ---------- UI rendering ----------
+// ---------- torrents ----------
 
 function mountCard(snap) {
   if (!snap.infoHash) return null;
@@ -56,13 +62,19 @@ function mountCard(snap) {
   $('#torrents-empty')?.setAttribute('hidden', '');
   cards.set(snap.infoHash, { el, snapshot: snap });
 
-  // Wire per-card buttons once.
-  el.querySelector('.copy-magnet').addEventListener('click', async () => {
-    const field = el.querySelector('.magnet-field');
+  el.querySelector('.copy-share').addEventListener('click', async () => {
+    const field = el.querySelector('.share-field');
+    const btn = el.querySelector('.copy-share');
     const ok = await copyText(field.value);
-    const btn = el.querySelector('.copy-magnet');
     btn.textContent = ok ? 'Скопировано' : 'Ошибка';
     setTimeout(() => (btn.textContent = 'Скопировать'), 1200);
+  });
+  el.querySelector('.copy-magnet').addEventListener('click', async () => {
+    const field = el.querySelector('.magnet-field');
+    const btn = el.querySelector('.copy-magnet');
+    const ok = await copyText(field.value);
+    btn.textContent = ok ? 'Скопировано' : 'Ошибка';
+    setTimeout(() => (btn.textContent = 'Magnet'), 1200);
   });
   el.querySelector('.remove-torrent').addEventListener('click', async () => {
     await api.removeTorrent(snap.infoHash);
@@ -72,17 +84,55 @@ function mountCard(snap) {
     updateCount();
   });
   el.querySelector('.reveal-file').addEventListener('click', () => {
-    const cur = cards.get(snap.infoHash)?.snapshot;
-    const first = cur?.files?.[0];
-    if (!first) return api.openDownloadDir();
-    // main appends the torrent name to downloads path; file.path is relative
-    // to the torrent root, so the absolute path isn't directly known here.
-    // Fall back to just opening the downloads dir.
     api.openDownloadDir();
   });
 
   renderCard(snap);
   return el;
+}
+
+function renderSenderBadge(el, sender) {
+  const badge = el.querySelector('.sender-badge');
+  if (!badge) return;
+  if (!sender) {
+    badge.hidden = true;
+    badge.textContent = '';
+    badge.className = 'sender-badge';
+    return;
+  }
+  badge.hidden = false;
+  badge.className = 'sender-badge';
+  if (sender.self) {
+    badge.classList.add('self');
+    badge.innerHTML = '<strong>Раздаёшь ты</strong> <span class="muted small">' + escapeHtml(shortId(sender.id)) + '</span>';
+    return;
+  }
+  if (sender.known && sender.nickname) {
+    badge.classList.add('contact');
+    badge.innerHTML = 'От: <strong>' + escapeHtml(sender.nickname) + '</strong> <span class="muted small">' + escapeHtml(shortId(sender.id)) + '</span>';
+    return;
+  }
+  if (sender.known) {
+    badge.classList.add('contact');
+    badge.innerHTML = 'От контакта <span class="muted small">' + escapeHtml(shortId(sender.id)) + '</span>';
+    return;
+  }
+  badge.classList.add('unknown');
+  badge.innerHTML = 'От: незнакомый <span class="muted small">' + escapeHtml(shortId(sender.id)) + '</span> '
+    + '<button type="button" class="btn small link add-sender-to-contacts">Добавить в контакты</button>';
+  const addBtn = badge.querySelector('.add-sender-to-contacts');
+  if (addBtn) {
+    addBtn.addEventListener('click', async () => {
+      const nick = prompt('Ник для контакта ' + shortId(sender.id), '');
+      if (nick === null) return;
+      try {
+        await api.addContact({ id: sender.id, nickname: nick });
+        await refreshContacts();
+      } catch (err) {
+        alert('Не удалось добавить: ' + (err?.message || err));
+      }
+    });
+  }
 }
 
 function renderCard(snap) {
@@ -95,6 +145,7 @@ function renderCard(snap) {
   const metaEl = el.querySelector('.torrent-meta');
   const statsEl = el.querySelector('.torrent-stats');
   const progBar = el.querySelector('.torrent-progress > div');
+  const shareField = el.querySelector('.share-field');
   const magnetField = el.querySelector('.magnet-field');
   const filesEl = el.querySelector('.torrent-files');
   const revealBtn = el.querySelector('.reveal-file');
@@ -105,7 +156,10 @@ function renderCard(snap) {
     snap.infoHash ? snap.infoHash.slice(0, 10) + '…' : '',
   ].filter(Boolean).join(' · ');
 
+  shareField.value = snap.shareURI || '';
   magnetField.value = snap.magnetURI || '';
+
+  renderSenderBadge(el, snap.sender);
 
   const pct = Math.max(0, Math.min(1, snap.progress || 0)) * 100;
   progBar.style.width = pct.toFixed(1) + '%';
@@ -120,7 +174,6 @@ function renderCard(snap) {
   else if (snap.timeRemaining != null) parts.push('осталось ' + humanDuration(snap.timeRemaining));
   statsEl.textContent = parts.join(' · ');
 
-  // Files list
   filesEl.innerHTML = '';
   for (const f of snap.files || []) {
     const row = document.createElement('div');
@@ -136,12 +189,6 @@ function renderCard(snap) {
 function updateCount() {
   $('#count-pill').textContent = String(cards.size);
   if (!cards.size) $('#torrents-empty')?.removeAttribute('hidden');
-}
-
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, (c) => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
-  }[c]));
 }
 
 // ---------- global stats ----------
@@ -172,14 +219,58 @@ async function seedPaths(paths) {
   }
 }
 
-async function addMagnet(uri) {
-  if (!uri?.trim()) return;
+async function addLink(link) {
+  if (!link?.trim()) return;
   try {
-    const snap = await api.addMagnet(uri.trim());
+    const snap = await api.addLink(link.trim());
     mountCard(snap);
     updateCount();
+    // If the share pointed to an unknown sender, refresh the badge after the
+    // renderer-side contacts list update — handled by the add-sender-to-contacts
+    // button inside the badge itself.
   } catch (err) {
-    alert('Не удалось открыть magnet: ' + (err?.message || err));
+    alert('Не удалось открыть: ' + (err?.message || err));
+  }
+}
+
+// ---------- contacts ----------
+
+async function refreshContacts() {
+  const list = await api.listContacts();
+  const box = $('#contacts');
+  box.querySelectorAll('.contact').forEach((n) => n.remove());
+  $('#contacts-count-pill').textContent = String(list.length);
+  if (!list.length) {
+    $('#contacts-empty')?.removeAttribute('hidden');
+  } else {
+    $('#contacts-empty')?.setAttribute('hidden', '');
+  }
+  const tpl = $('#contact-tpl');
+  for (const c of list) {
+    const el = tpl.content.firstElementChild.cloneNode(true);
+    el.querySelector('.contact-nick').textContent = c.nickname || '(без ника)';
+    el.querySelector('.contact-id').textContent = c.id;
+    el.querySelector('.remove-contact').addEventListener('click', async () => {
+      if (!confirm('Удалить контакт ' + (c.nickname || shortId(c.id)) + '?')) return;
+      await api.removeContact(c.id);
+      await refreshContacts();
+      // Re-render already-loaded torrent cards so sender labels reflect the removal.
+      for (const { snapshot } of cards.values()) renderCard(snapshot);
+    });
+    box.appendChild(el);
+  }
+  // Existing torrent cards may reference this contact; re-pull sender info.
+  for (const { snapshot, el } of cards.values()) {
+    if (snapshot.sender && snapshot.sender.id && !snapshot.sender.self) {
+      const match = list.find((c) => c.id === snapshot.sender.id);
+      snapshot.sender = {
+        id: snapshot.sender.id,
+        nickname: match?.nickname || '',
+        self: false,
+        known: !!match,
+      };
+      renderSenderBadge(el, snapshot.sender);
+    }
   }
 }
 
@@ -207,14 +298,31 @@ function initDropZone() {
   });
 }
 
-function initMagnetForm() {
-  $('#add-magnet-form').addEventListener('submit', (e) => {
+function initLinkForm() {
+  $('#add-link-form').addEventListener('submit', (e) => {
     e.preventDefault();
-    const input = $('#magnet-input');
+    const input = $('#link-input');
     const val = input.value;
     if (!val.trim()) return;
     input.value = '';
-    addMagnet(val);
+    addLink(val);
+  });
+}
+
+function initContactForm() {
+  $('#add-contact-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const nick = $('#contact-nickname').value.trim();
+    const id = $('#contact-id').value.trim();
+    if (!id) return;
+    try {
+      await api.addContact({ id, nickname: nick });
+      $('#contact-nickname').value = '';
+      $('#contact-id').value = '';
+      await refreshContacts();
+    } catch (err) {
+      alert('Не удалось добавить контакт: ' + (err?.message || err));
+    }
   });
 }
 
@@ -229,6 +337,24 @@ async function initVersion() {
   } catch { /* ignore */ }
 }
 
+async function initIdentity() {
+  try {
+    const me = await api.me();
+    if (!me) return;
+    myId = me.id;
+    $('#my-id').value = me.id;
+    if (me.qrDataURL) $('#my-qr').src = me.qrDataURL;
+    $('#btn-copy-id').addEventListener('click', async () => {
+      const btn = $('#btn-copy-id');
+      const ok = await copyText(me.id);
+      btn.textContent = ok ? 'Скопировано' : 'Ошибка';
+      setTimeout(() => (btn.textContent = 'Скопировать'), 1200);
+    });
+  } catch (err) {
+    console.warn('identity failed:', err);
+  }
+}
+
 function initStreams() {
   api.onTorrentUpdate((snap) => {
     if (!snap?.infoHash) return;
@@ -239,7 +365,22 @@ function initStreams() {
   api.onTorrentError(({ infoHash, message }) => {
     console.warn('torrent error', infoHash, message);
   });
-  api.onDeepLinkMagnet((magnet) => addMagnet(magnet));
+  api.onDeepLink((parsed) => {
+    if (!parsed) return;
+    // parsed is either { kind: 'magnet', magnet } or { kind: 'share', magnet, sender, valid }
+    // Reconstruct the original share URI or magnet and feed it through the regular addLink path.
+    if (parsed.kind === 'share') {
+      // The renderer doesn't know the original base64 payload, so hand the
+      // magnet directly — the main process already tagged the sender in the
+      // share-decode step when parsing the deep link, but not for re-adds via
+      // the regular add-link IPC. Safer: re-encode via server hint. For now,
+      // add the magnet and rely on a subsequent signed share to claim the
+      // sender.
+      addLink(parsed.magnet);
+    } else {
+      addLink(parsed.magnet);
+    }
+  });
 }
 
 async function restoreExisting() {
@@ -255,8 +396,11 @@ async function restoreExisting() {
 document.addEventListener('DOMContentLoaded', () => {
   initTopbar();
   initDropZone();
-  initMagnetForm();
+  initLinkForm();
+  initContactForm();
   initVersion();
+  initIdentity();
   initStreams();
+  refreshContacts();
   restoreExisting();
 });

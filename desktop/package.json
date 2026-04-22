@@ -1,7 +1,7 @@
 {
   "name": "bratan-tracker-desktop",
   "productName": "БРАТАН",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Анонимный P2P-туннель для обмена файлами. Без сервера, без логов.",
   "private": true,
   "main": "main.js",
@@ -19,6 +19,7 @@
     "dist:linux": "electron-builder --linux"
   },
   "dependencies": {
+    "qrcode": "^1.5.4",
     "webtorrent": "^2.5.1"
   },
   "devDependencies": {
@@ -47,13 +48,25 @@
     "protocols": [
       {
         "name": "Bratan magnet",
-        "schemes": ["bratan"]
+        "schemes": [
+          "bratan"
+        ]
       }
     ],
     "win": {
       "target": [
-        { "target": "nsis", "arch": ["x64"] },
-        { "target": "portable", "arch": ["x64"] }
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
       ]
     },
     "nsis": {
@@ -63,14 +76,25 @@
     },
     "mac": {
       "target": [
-        { "target": "dmg", "arch": ["x64", "arm64"] }
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
       ],
       "category": "public.app-category.utilities",
       "identity": null
     },
     "linux": {
       "target": [
-        { "target": "AppImage", "arch": ["x64"] }
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
       "category": "Network"
     },
