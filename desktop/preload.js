@@ -33,7 +33,13 @@ contextBridge.exposeInMainWorld('bratan', {
   removeContact: (id) => ipcRenderer.invoke('contacts:remove', id),
   decodeLink: (link) => ipcRenderer.invoke('share:decode', link),
 
+  getUpdateState: () => ipcRenderer.invoke('update:state'),
+  checkForUpdate: () => ipcRenderer.invoke('update:check'),
+  installUpdate: () => ipcRenderer.invoke('update:install'),
+  openReleasePage: () => ipcRenderer.invoke('update:open-release'),
+
   onTorrentUpdate: (handler) => subscribe('torrent:update', handler),
   onTorrentError: (handler) => subscribe('torrent:error', handler),
   onDeepLink: (handler) => subscribe('deep-link', handler),
+  onUpdateState: (handler) => subscribe('update:state', handler),
 });
