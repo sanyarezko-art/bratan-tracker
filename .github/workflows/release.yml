@@ -44,7 +44,7 @@ jobs:
           cache-dependency-path: desktop/package-lock.json
 
       - name: Install dependencies
-        run: npm ci --omit=optional
+        run: npm ci
 
       - name: Build (Windows)
         if: matrix.os == 'windows-latest'
