@@ -42,10 +42,32 @@
     <section class="hero">
       <h2>Файлы летят <span class="grad-text">напрямую</span> между компьютерами</h2>
       <p>
-        Брось файл — клиент соберёт торрент, скопируй magnet или share-ссылку и
-        отправь получателю. Байты идут <strong>напрямую</strong>, без нашего сервера
-        и без логов. Держи приложение открытым, пока хочешь раздавать.
+        Брось файл — клиент соберёт торрент, скопируй подписанную share-ссылку и
+        отправь получателю. Байты идут <strong>напрямую</strong>, без сервера и
+        без логов. Получатель увидит, что ссылка пришла именно от тебя — по твоему
+        БРАТАН-ID.
       </p>
+    </section>
+
+    <section class="card card-identity" id="identity-card">
+      <div class="card-head">
+        <h3>Твой БРАТАН-ID</h3>
+        <span class="pill ok">ed25519 · локально</span>
+      </div>
+      <div class="identity-row">
+        <img id="my-qr" class="qr" alt="QR с моим БРАТАН-ID" />
+        <div class="identity-text">
+          <p class="muted small">
+            Ключ живёт только на этом компьютере. Дай этот ID другу — он добавит
+            тебя в контакты, и любая share-ссылка от тебя будет подписана именно
+            этим ключом. Никакого сервера регистрации нет.
+          </p>
+          <div class="id-field">
+            <input id="my-id" type="text" readonly aria-label="Мой БРАТАН-ID" />
+            <button type="button" class="btn small" id="btn-copy-id">Скопировать</button>
+          </div>
+        </div>
+      </div>
     </section>
 
     <section class="card card-create" id="create-card">
@@ -67,23 +89,38 @@
     <section class="card" id="add-card">
       <div class="card-head">
         <h3>Открыть чужую раздачу</h3>
-        <span class="pill muted">magnet-ссылка</span>
+        <span class="pill muted">magnet · bratan://share</span>
       </div>
-      <form id="add-magnet-form" class="row">
+      <form id="add-link-form" class="row">
         <input
-          id="magnet-input"
+          id="link-input"
           type="text"
           autocomplete="off"
           spellcheck="false"
-          placeholder="magnet:?xt=urn:btih:…"
-          aria-label="Magnet-ссылка"
+          placeholder="magnet:?xt=urn:btih:… или bratan://share/v1/…"
+          aria-label="Ссылка"
         />
         <button type="submit" class="btn primary">Открыть</button>
       </form>
       <p class="muted small">
-        Сюда можно вставлять обычные BitTorrent magnet-ссылки — приложение говорит
-        по TCP/UDP, как десктопный клиент.
+        Подписанная share-ссылка покажет, от кого она. Обычный magnet работает как
+        в любом BitTorrent-клиенте — TCP/UDP/DHT.
       </p>
+    </section>
+
+    <section class="card" id="contacts-card">
+      <div class="card-head">
+        <h3>Контакты</h3>
+        <span id="contacts-count-pill" class="pill muted">0</span>
+      </div>
+      <form id="add-contact-form" class="row contact-form">
+        <input id="contact-nickname" type="text" placeholder="Ник (напр. «Артём»)" maxlength="80" autocomplete="off" spellcheck="false" />
+        <input id="contact-id" type="text" placeholder="БРАТАН-ID (52 символа)" autocomplete="off" spellcheck="false" />
+        <button type="submit" class="btn">Добавить</button>
+      </form>
+      <div id="contacts" class="contacts">
+        <div class="empty muted small" id="contacts-empty">Контактов пока нет. Попроси друга прислать его БРАТАН-ID или отсканируй QR с его экрана.</div>
+      </div>
     </section>
 
     <section class="card" id="torrents-card">
@@ -97,15 +134,15 @@
         <span><strong>↑</strong> <span id="stat-up">0 Б/с</span></span>
       </div>
       <div id="torrents" class="torrents" aria-live="polite">
-        <div class="empty muted" id="torrents-empty">Пока пусто. Брось файл или вставь magnet выше.</div>
+        <div class="empty muted" id="torrents-empty">Пока пусто. Брось файл или вставь magnet/share-ссылку выше.</div>
       </div>
     </section>
 
     <section class="about muted small">
       <p>
         БРАТАН работает как обычный BitTorrent-клиент: TCP / UDP / uTP / DHT / LSD +
-        WebRTC для связки с браузерами. Никакой аналитики и серверов — только твой
-        компьютер и компьютер получателя.
+        WebRTC. Share-ссылки подписаны ed25519, так что получатель знает,
+        что раздача именно твоя. Никакой аналитики, серверов, аккаунтов.
       </p>
     </section>
   </main>
@@ -116,13 +153,19 @@
         <div class="torrent-name"></div>
         <div class="torrent-meta muted small"></div>
       </div>
+      <div class="sender-badge" hidden></div>
       <div class="torrent-progress"><div></div></div>
       <div class="torrent-stats muted small"></div>
       <div class="torrent-share">
         <div class="share-row">
+          <label>Подписанная ссылка</label>
+          <input class="share-field" type="text" readonly />
+          <button type="button" class="btn small copy-share">Скопировать</button>
+        </div>
+        <div class="share-row">
           <label>Magnet</label>
           <input class="magnet-field" type="text" readonly />
-          <button type="button" class="btn small copy-magnet">Скопировать</button>
+          <button type="button" class="btn small subtle copy-magnet">Magnet</button>
         </div>
       </div>
       <div class="torrent-files"></div>
@@ -131,6 +174,16 @@
         <button type="button" class="btn small danger remove-torrent">Удалить</button>
       </div>
     </article>
+  </template>
+
+  <template id="contact-tpl">
+    <div class="contact">
+      <div class="contact-main">
+        <div class="contact-nick"></div>
+        <div class="contact-id muted small"></div>
+      </div>
+      <button type="button" class="btn small danger remove-contact">Удалить</button>
+    </div>
   </template>
 
   <script src="renderer.js"></script>

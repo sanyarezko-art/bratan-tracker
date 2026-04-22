@@ -11,6 +11,11 @@ const fs = require('node:fs');
 const os = require('node:os');
 const { app, BrowserWindow, ipcMain, dialog, shell, Menu } = require('electron');
 
+const identity = require('./identity');
+const contacts = require('./contacts');
+const share = require('./share');
+const QRCode = require('qrcode');
+
 // webtorrent 2.x is ESM-only with top-level await, so it can't be require()'d
 // from our CommonJS main process. Use a one-shot dynamic import.
 let WebTorrentPromise = null;
@@ -50,6 +55,27 @@ const DEFAULT_DOWNLOAD_DIR = path.join(app.getPath('downloads'), 'Bratan');
 
 function ensureDownloadDir() {
   try { fs.mkdirSync(DEFAULT_DOWNLOAD_DIR, { recursive: true }); } catch { /* ignore */ }
+}
+
+// ---------- identity + contacts ----------
+
+// Identity is loaded once on app ready; senderByInfoHash tracks the claimed
+// sender of each magnet we've received via a signed share link. Our own
+// seeds are tagged with our own public id so the renderer can label them.
+
+let myIdentity = null;
+const senderByInfoHash = new Map();
+
+function userDataDir() { return app.getPath('userData'); }
+function myPublicId() { return myIdentity ? identity.publicId(myIdentity) : null; }
+
+function senderInfo(id) {
+  if (!id) return null;
+  if (id === myPublicId()) return { id, nickname: '', self: true, known: true };
+  const rec = contacts.lookup(userDataDir(), id);
+  return rec
+    ? { id, nickname: rec.nickname, self: false, known: true }
+    : { id, nickname: '', self: false, known: false };
 }
 
 // ---------- WebTorrent client (lives for the whole app lifetime) ----------
@@ -114,33 +140,35 @@ function createMainWindow() {
   return win;
 }
 
-// ---------- protocol: bratan://magnet/<magnet URI> ----------
+// ---------- protocol: bratan://magnet/<magnet URI> or bratan://share/v1/<…> ----------
 
 if (!app.isDefaultProtocolClient('bratan')) app.setAsDefaultProtocolClient('bratan');
 
-function magnetFromDeepLink(url) {
+function parseDeepLink(url) {
   if (!url || typeof url !== 'string') return null;
+  // Signed-share form is the new preferred shape.
+  const shareDecoded = share.decode(url);
+  if (shareDecoded) return shareDecoded;
   try {
     const u = new URL(url);
     if (u.protocol !== 'bratan:') return null;
-    // Accept bratan://magnet/<magnet:?…> and bratan://?magnet=<urlenc>
+    // Legacy: bratan://magnet/<magnet:?…> or bratan://?magnet=<urlenc>
     const raw = u.pathname.replace(/^\/*/, '') || u.hostname || '';
-    if (raw.startsWith('magnet:')) return decodeURIComponent(raw);
+    if (raw.startsWith('magnet:')) return { kind: 'magnet', magnet: decodeURIComponent(raw) };
     const q = u.searchParams.get('magnet');
-    if (q) return decodeURIComponent(q);
+    if (q) return { kind: 'magnet', magnet: decodeURIComponent(q) };
   } catch { /* fallthrough */ }
   return null;
 }
 
-function maybeOpenPendingMagnet(argv) {
+function maybeOpenPendingLink(argv) {
   const found = (argv || []).find((a) => typeof a === 'string' && a.startsWith('bratan:'));
   if (!found) return;
-  const magnet = magnetFromDeepLink(found);
-  if (!magnet) return;
-  if (mainWindow) mainWindow.webContents.send('deep-link-magnet', magnet);
+  const parsed = parseDeepLink(found);
+  if (!parsed) return;
+  if (mainWindow) mainWindow.webContents.send('deep-link', parsed);
   else app.once('browser-window-created', () => {
-    // Small delay so renderer is ready.
-    setTimeout(() => mainWindow?.webContents.send('deep-link-magnet', magnet), 400);
+    setTimeout(() => mainWindow?.webContents.send('deep-link', parsed), 400);
   });
 }
 
@@ -149,13 +177,13 @@ app.on('second-instance', (_event, argv) => {
     if (mainWindow.isMinimized()) mainWindow.restore();
     mainWindow.focus();
   }
-  maybeOpenPendingMagnet(argv);
+  maybeOpenPendingLink(argv);
 });
 
 app.on('open-url', (event, url) => {
   event.preventDefault();
-  const magnet = magnetFromDeepLink(url);
-  if (magnet && mainWindow) mainWindow.webContents.send('deep-link-magnet', magnet);
+  const parsed = parseDeepLink(url);
+  if (parsed && mainWindow) mainWindow.webContents.send('deep-link', parsed);
 });
 
 // ---------- lifecycle ----------
@@ -180,8 +208,13 @@ app.whenReady().then(() => {
   ]));
 
   ensureDownloadDir();
+  try {
+    myIdentity = identity.loadOrCreate(userDataDir());
+  } catch (err) {
+    console.error('[identity] failed to load/create:', err);
+  }
   createMainWindow();
-  maybeOpenPendingMagnet(process.argv);
+  maybeOpenPendingLink(process.argv);
 });
 
 app.on('window-all-closed', () => {
@@ -203,9 +236,16 @@ app.on('before-quit', () => {
 const progressTimers = new Map();
 
 function snapshot(t) {
+  const magnetURI = t.magnetURI || '';
+  const claimedSender = t.infoHash ? senderByInfoHash.get(t.infoHash) || null : null;
+  let shareURI = '';
+  if (magnetURI && myIdentity) {
+    try { shareURI = share.encode(myIdentity, magnetURI); } catch { /* ignore */ }
+  }
   return {
     infoHash: t.infoHash || null,
-    magnetURI: t.magnetURI || '',
+    magnetURI,
+    shareURI,
     name: t.name || '',
     length: t.length || 0,
     progress: t.progress || 0,
@@ -219,6 +259,7 @@ function snapshot(t) {
     paused: !!t.paused,
     files: (t.files || []).map((f) => ({ name: f.name, length: f.length, path: f.path })),
     ready: !!t.ready,
+    sender: senderInfo(claimedSender),
   };
 }
 
@@ -262,38 +303,45 @@ ipcMain.handle('torrent:seed-paths', async (event, paths) => {
     cli.once('error', onErr);
     cli.seed(paths, { announce: WT_TRACKERS, path: DEFAULT_DOWNLOAD_DIR }, (torrent) => {
       cli.removeListener('error', onErr);
+      // Our own seed: tag with our public id so the renderer shows "Раздаёшь ты".
+      if (torrent.infoHash && myIdentity) senderByInfoHash.set(torrent.infoHash, myPublicId());
       attachTorrentListeners(torrent, event.sender);
       resolve(snapshot(torrent));
     });
   });
 });
 
-ipcMain.handle('torrent:add-magnet', async (event, magnet) => {
-  if (typeof magnet !== 'string' || !magnet.trim()) throw new Error('empty magnet');
+/** Accepts a raw magnet URI OR a bratan://share/v1/… link. */
+ipcMain.handle('torrent:add-link', async (event, link) => {
+  if (typeof link !== 'string' || !link.trim()) throw new Error('empty link');
+  const parsed = share.decode(link.trim());
+  if (!parsed) throw new Error('Не magnet-ссылка и не БРАТАН-share');
+  const magnet = parsed.magnet;
+  const claimedSender = parsed.kind === 'share' && parsed.valid ? parsed.sender : null;
+
   const cli = await getClient();
   return new Promise((resolve, reject) => {
     let resolved = false;
-    const torrent = cli.add(magnet.trim(), {
+    const torrent = cli.add(magnet, {
       announce: WT_TRACKERS,
       path: DEFAULT_DOWNLOAD_DIR,
     });
-    torrent.on('infoHash', () => {
+    const finish = () => {
       if (resolved) return;
       resolved = true;
+      if (torrent.infoHash && claimedSender) {
+        senderByInfoHash.set(torrent.infoHash, claimedSender);
+      }
       attachTorrentListeners(torrent, event.sender);
       resolve(snapshot(torrent));
-    });
+    };
+    torrent.on('infoHash', finish);
     torrent.once('error', (err) => {
       if (resolved) return;
       resolved = true;
       reject(err);
     });
-    setTimeout(() => {
-      if (resolved) return;
-      resolved = true;
-      attachTorrentListeners(torrent, event.sender);
-      resolve(snapshot(torrent));
-    }, 3000);
+    setTimeout(finish, 3000);
   });
 });
 
@@ -348,3 +396,34 @@ ipcMain.handle('app:paths', () => ({
   downloads: DEFAULT_DOWNLOAD_DIR,
   home: os.homedir(),
 }));
+
+// ---------- IPC: identity + contacts ----------
+
+ipcMain.handle('identity:me', async () => {
+  if (!myIdentity) return null;
+  const id = myPublicId();
+  const qrDataURL = await QRCode.toDataURL(id, {
+    margin: 1,
+    width: 256,
+    color: { dark: '#0b0f14', light: '#ffffff' },
+  }).catch(() => '');
+  return { id, qrDataURL };
+});
+
+ipcMain.handle('contacts:list', () => contacts.load(userDataDir()));
+
+ipcMain.handle('contacts:add', (_event, rec) => {
+  const list = contacts.add(userDataDir(), rec || {});
+  return list;
+});
+
+ipcMain.handle('contacts:remove', (_event, id) => contacts.remove(userDataDir(), id));
+
+ipcMain.handle('share:decode', (_event, link) => {
+  const parsed = share.decode(link);
+  if (!parsed) return null;
+  if (parsed.kind === 'share') {
+    return { ...parsed, senderInfo: senderInfo(parsed.sender) };
+  }
+  return parsed;
+});
