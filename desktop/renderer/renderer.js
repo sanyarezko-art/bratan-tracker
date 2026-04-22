@@ -235,8 +235,12 @@ async function addLink(link) {
 
 // ---------- contacts ----------
 
+let contactsCache = [];
+let presenceSet = new Set();
+
 async function refreshContacts() {
   const list = await api.listContacts();
+  contactsCache = list;
   const box = $('#contacts');
   box.querySelectorAll('.contact').forEach((n) => n.remove());
   $('#contacts-count-pill').textContent = String(list.length);
@@ -248,18 +252,22 @@ async function refreshContacts() {
   const tpl = $('#contact-tpl');
   for (const c of list) {
     const el = tpl.content.firstElementChild.cloneNode(true);
-    el.querySelector('.contact-nick').textContent = c.nickname || '(без ника)';
+    const nickText = el.querySelector('.nick-text');
+    const dot = el.querySelector('.presence-dot');
+    nickText.textContent = c.nickname || '(без ника)';
+    const online = presenceSet.has(c.id);
+    dot.classList.toggle('online', online);
+    dot.title = online ? 'Сейчас в сети' : 'Оффлайн';
     el.querySelector('.contact-id').textContent = c.id;
     el.querySelector('.remove-contact').addEventListener('click', async () => {
       if (!confirm('Удалить контакт ' + (c.nickname || shortId(c.id)) + '?')) return;
       await api.removeContact(c.id);
       await refreshContacts();
-      // Re-render already-loaded torrent cards so sender labels reflect the removal.
+      await refreshOffers();
       for (const { snapshot } of cards.values()) renderCard(snapshot);
     });
     box.appendChild(el);
   }
-  // Existing torrent cards may reference this contact; re-pull sender info.
   for (const { snapshot, el } of cards.values()) {
     if (snapshot.sender && snapshot.sender.id && !snapshot.sender.self) {
       const match = list.find((c) => c.id === snapshot.sender.id);
@@ -272,6 +280,99 @@ async function refreshContacts() {
       renderSenderBadge(el, snapshot.sender);
     }
   }
+}
+
+// ---------- relay status + offers ----------
+
+function renderRelayState(state) {
+  const pill = $('#relay-pill');
+  const dot = $('#relay-dot');
+  const label = $('#relay-label');
+  if (!pill || !dot || !label) return;
+  pill.classList.remove('ok', 'warn');
+  const s = state?.status;
+  if (s === 'connected') {
+    pill.classList.add('ok');
+    dot.className = 'dot online';
+    label.textContent = 'в сети';
+  } else if (s === 'connecting') {
+    pill.classList.add('warn');
+    dot.className = 'dot connecting';
+    label.textContent = 'подключение…';
+  } else {
+    dot.className = 'dot';
+    label.textContent = 'нет связи';
+  }
+  presenceSet = new Set((state?.online || []).map((x) => String(x || '').toLowerCase()));
+  // Update already-drawn contact rows with presence.
+  document.querySelectorAll('.contact').forEach((el) => {
+    const id = el.querySelector('.contact-id')?.textContent || '';
+    const online = presenceSet.has(id);
+    const d = el.querySelector('.presence-dot');
+    if (d) {
+      d.classList.toggle('online', online);
+      d.title = online ? 'Сейчас в сети' : 'Оффлайн';
+    }
+  });
+}
+
+function renderOffers(offers) {
+  const card = $('#offers-card');
+  const box = $('#offers');
+  const pill = $('#offers-count-pill');
+  if (!card || !box || !pill) return;
+  box.innerHTML = '';
+  const list = Array.isArray(offers) ? offers : [];
+  pill.textContent = String(list.length);
+  if (!list.length) {
+    card.hidden = true;
+    return;
+  }
+  card.hidden = false;
+  const tpl = $('#offer-tpl');
+  for (const o of list) {
+    const el = tpl.content.firstElementChild.cloneNode(true);
+    const env = o.env || {};
+    el.querySelector('.offer-name').textContent = env.name || '(без имени)';
+    el.querySelector('.offer-meta').textContent = [
+      Number.isFinite(env.size) && env.size > 0 ? fmtBytes(env.size) : '',
+      env.infoHash ? env.infoHash.slice(0, 10) + '…' : '',
+    ].filter(Boolean).join(' · ');
+    const fromLabel = o.from?.nickname
+      ? 'От: ' + o.from.nickname + ' · ' + shortId(o.from.id)
+      : 'От: ' + shortId(o.from?.id || o.fromId || '');
+    el.querySelector('.offer-from').textContent = fromLabel;
+
+    el.querySelector('.accept-offer').addEventListener('click', async (ev) => {
+      const btn = ev.currentTarget;
+      btn.disabled = true;
+      btn.textContent = 'Принимаю…';
+      try {
+        const snap = await api.acceptOffer(o.infoHash);
+        mountCard(snap);
+        updateCount();
+      } catch (err) {
+        alert('Не удалось принять: ' + (err?.message || err));
+        btn.disabled = false;
+        btn.textContent = 'Принять';
+      }
+    });
+    el.querySelector('.dismiss-offer').addEventListener('click', async () => {
+      await api.dismissOffer(o.infoHash);
+    });
+    box.appendChild(el);
+  }
+}
+
+async function refreshOffers() {
+  try { renderOffers(await api.listOffers()); } catch { /* ignore */ }
+}
+
+function initRelay() {
+  api.onRelayState(renderRelayState);
+  api.onOffers(renderOffers);
+  api.getRelayState().then(renderRelayState).catch(() => {});
+  refreshOffers();
 }
 
 // ---------- wiring ----------
@@ -493,6 +594,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initVersion();
   initIdentity();
   initUpdateBanner();
+  initRelay();
   initStreams();
   refreshContacts();
   restoreExisting();

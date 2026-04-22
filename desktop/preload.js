@@ -38,8 +38,15 @@ contextBridge.exposeInMainWorld('bratan', {
   installUpdate: () => ipcRenderer.invoke('update:install'),
   openReleasePage: () => ipcRenderer.invoke('update:open-release'),
 
+  getRelayState: () => ipcRenderer.invoke('relay:state'),
+  listOffers: () => ipcRenderer.invoke('relay:offers'),
+  acceptOffer: (infoHash) => ipcRenderer.invoke('relay:accept', infoHash),
+  dismissOffer: (infoHash) => ipcRenderer.invoke('relay:dismiss', infoHash),
+
   onTorrentUpdate: (handler) => subscribe('torrent:update', handler),
   onTorrentError: (handler) => subscribe('torrent:error', handler),
   onDeepLink: (handler) => subscribe('deep-link', handler),
   onUpdateState: (handler) => subscribe('update:state', handler),
+  onRelayState: (handler) => subscribe('relay:state', handler),
+  onOffers: (handler) => subscribe('relay:offers', handler),
 });

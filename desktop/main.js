@@ -14,6 +14,8 @@ const { app, BrowserWindow, ipcMain, dialog, shell, Menu } = require('electron')
 const identity = require('./identity');
 const contacts = require('./contacts');
 const share = require('./share');
+const seeds = require('./seeds');
+const { RelayClient } = require('./relay');
 const QRCode = require('qrcode');
 const { autoUpdater } = require('electron-updater');
 
@@ -67,6 +69,19 @@ function ensureDownloadDir() {
 let myIdentity = null;
 const senderByInfoHash = new Map();
 
+// ---------- relay + offers ----------
+
+let relayClient = null;
+let relayState = 'disconnected'; // 'disconnected' | 'connecting' | 'connected' | 'closed'
+let presenceOnline = new Set();  // ids (from contacts) that the relay says are live
+
+// Offers we've received from contacts. Keyed by infoHash so that A re-sending
+// the same file updates the existing row instead of duplicating it. Dismissed
+// offers are tracked separately (cleared on app restart) so the user can hide
+// noise without us "forgetting" the file forever.
+const incomingOffers = new Map();          // infoHash -> { from, env, firstSeenAt }
+const dismissedOfferHashes = new Set();    // infoHash
+
 function userDataDir() { return app.getPath('userData'); }
 function myPublicId() { return myIdentity ? identity.publicId(myIdentity) : null; }
 
@@ -77,6 +92,66 @@ function senderInfo(id) {
   return rec
     ? { id, nickname: rec.nickname, self: false, known: true }
     : { id, nickname: '', self: false, known: false };
+}
+
+/** Build a public "offer" envelope for one of our own seeds, to broadcast to
+ *  contacts via the relay. Returns null if we don't have an identity yet
+ *  (can't sign the share link). */
+function buildOfferEnvelope(torrent) {
+  if (!torrent || !torrent.infoHash || !torrent.magnetURI || !myIdentity) return null;
+  let shareURI;
+  try { shareURI = share.encode(myIdentity, torrent.magnetURI); }
+  catch { return null; }
+  return {
+    kind: 'offer',
+    v: 1,
+    infoHash: torrent.infoHash,
+    share: shareURI,
+    name: String(torrent.name || ''),
+    size: Number.isFinite(torrent.length) ? torrent.length : 0,
+  };
+}
+
+/** Broadcast an envelope to every known contact over the relay. */
+function broadcastToContacts(env) {
+  if (!relayClient || !relayClient.isConnected() || !env) return 0;
+  const list = contacts.load(userDataDir());
+  let sent = 0;
+  for (const c of list) {
+    if (relayClient.send(c.id, env)) sent++;
+  }
+  return sent;
+}
+
+/** Push current relay + offers state to the renderer. Safe to call anytime. */
+function pushRelayState() {
+  if (!mainWindow || mainWindow.webContents.isDestroyed()) return;
+  mainWindow.webContents.send('relay:state', {
+    status: relayState,
+    connected: relayState === 'connected',
+    online: Array.from(presenceOnline),
+  });
+}
+
+function pushOffersList() {
+  if (!mainWindow || mainWindow.webContents.isDestroyed()) return;
+  mainWindow.webContents.send('relay:offers', listOffers());
+}
+
+function listOffers() {
+  const out = [];
+  for (const [infoHash, rec] of incomingOffers) {
+    if (dismissedOfferHashes.has(infoHash)) continue;
+    out.push({
+      infoHash,
+      from: senderInfo(rec.from),
+      fromId: rec.from,
+      env: rec.env,
+      firstSeenAt: rec.firstSeenAt,
+    });
+  }
+  out.sort((a, b) => (a.firstSeenAt < b.firstSeenAt ? 1 : -1));
+  return out;
 }
 
 // ---------- WebTorrent client (lives for the whole app lifetime) ----------
@@ -217,6 +292,11 @@ app.whenReady().then(() => {
   createMainWindow();
   maybeOpenPendingLink(process.argv);
   setupAutoUpdater();
+  setupRelay();
+  // Re-seed saved раздачи in the background. Even if the user closed the
+  // app in the middle of a friend's download, re-running main will pick
+  // up exactly where we left off.
+  restoreSeeds().catch((err) => console.warn('[seeds] restore failed:', err?.message || err));
 });
 
 app.on('window-all-closed', () => {
@@ -226,6 +306,9 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+  if (relayClient) {
+    try { relayClient.stop(); } catch { /* ignore */ }
+  }
   if (client) {
     try { client.destroy(() => { /* noop */ }); } catch { /* ignore */ }
   }
@@ -267,8 +350,9 @@ function snapshot(t) {
 
 function attachTorrentListeners(t, webContents) {
   const push = () => {
-    if (webContents.isDestroyed()) return;
-    webContents.send('torrent:update', snapshot(t));
+    const wc = webContents && !webContents.isDestroyed() ? webContents : mainWindow?.webContents;
+    if (!wc || wc.isDestroyed()) return;
+    wc.send('torrent:update', snapshot(t));
   };
   const schedule = () => {
     if (progressTimers.has(t.infoHash)) return;
@@ -285,8 +369,9 @@ function attachTorrentListeners(t, webContents) {
   t.on('download', schedule);
   t.on('upload', schedule);
   t.on('error', (err) => {
-    if (webContents.isDestroyed()) return;
-    webContents.send('torrent:error', { infoHash: t.infoHash, message: String(err?.message || err) });
+    const wc = webContents && !webContents.isDestroyed() ? webContents : mainWindow?.webContents;
+    if (!wc || wc.isDestroyed()) return;
+    wc.send('torrent:error', { infoHash: t.infoHash, message: String(err?.message || err) });
   });
   // Push once so the renderer gets the seed's initial state.
   setTimeout(push, 0);
@@ -299,19 +384,39 @@ ipcMain.handle('torrent:list', async () => {
 
 ipcMain.handle('torrent:seed-paths', async (event, paths) => {
   if (!Array.isArray(paths) || !paths.length) throw new Error('no paths');
+  const snap = await startSeed(paths, event.sender);
+  return snap;
+});
+
+/** Start seeding a set of local file paths. Persists the raздача so it
+ *  resumes on next launch, and broadcasts an offer to all contacts. */
+async function startSeed(paths, webContents) {
   const cli = await getClient();
   return new Promise((resolve, reject) => {
-    const onErr = (err) => reject(err);
+    const onErr = (err) => { cli.removeListener('error', onErr); reject(err); };
     cli.once('error', onErr);
     cli.seed(paths, { announce: WT_TRACKERS, path: DEFAULT_DOWNLOAD_DIR }, (torrent) => {
       cli.removeListener('error', onErr);
-      // Our own seed: tag with our public id so the renderer shows "Раздаёшь ты".
       if (torrent.infoHash && myIdentity) senderByInfoHash.set(torrent.infoHash, myPublicId());
-      attachTorrentListeners(torrent, event.sender);
+      attachTorrentListeners(torrent, webContents || mainWindow?.webContents);
+      // Persist so we re-seed on next launch.
+      try {
+        seeds.upsert(userDataDir(), {
+          infoHash: torrent.infoHash,
+          magnetURI: torrent.magnetURI,
+          name: torrent.name,
+          length: torrent.length,
+          filePaths: paths,
+        });
+      } catch (err) { console.warn('[seeds] upsert failed:', err?.message || err); }
+      // Announce to contacts so friends see it instantly. If the relay isn't
+      // connected yet, the announce will happen on the next 'authenticated'.
+      const env = buildOfferEnvelope(torrent);
+      if (env) broadcastToContacts(env);
       resolve(snapshot(torrent));
     });
   });
-});
+}
 
 /** Accepts a raw magnet URI OR a bratan://share/v1/… link. */
 ipcMain.handle('torrent:add-link', async (event, link) => {
@@ -350,6 +455,12 @@ ipcMain.handle('torrent:add-link', async (event, link) => {
 ipcMain.handle('torrent:remove', async (_event, infoHash) => {
   const cli = await getClient();
   const t = cli.get(infoHash);
+  // Always clean up persistence + tell contacts to drop the offer, even if
+  // the client has already evicted the torrent from memory.
+  try { seeds.remove(userDataDir(), infoHash); } catch { /* ignore */ }
+  incomingOffers.delete(String(infoHash || '').toLowerCase());
+  pushOffersList();
+  broadcastToContacts({ kind: 'revoke', v: 1, infoHash: String(infoHash || '') });
   if (!t) return false;
   return new Promise((resolve) => {
     t.destroy({ destroyStore: false }, () => resolve(true));
@@ -414,8 +525,27 @@ ipcMain.handle('identity:me', async () => {
 
 ipcMain.handle('contacts:list', () => contacts.load(userDataDir()));
 
-ipcMain.handle('contacts:add', (_event, rec) => {
+ipcMain.handle('contacts:add', async (_event, rec) => {
   const list = contacts.add(userDataDir(), rec || {});
+  const newId = String(rec?.id || '').toLowerCase().replace(/[^a-z2-7]/g, '');
+  // If the relay is up, immediately tell the new contact about our current
+  // seeds and ask them to mirror theirs. Also refresh presence so the topbar
+  // lights up instantly.
+  if (newId && relayClient?.isConnected()) {
+    try {
+      const cli = await getClient();
+      for (const t of cli.torrents) {
+        if (!t?.infoHash) continue;
+        if (senderByInfoHash.get(t.infoHash) !== myPublicId()) continue; // only our own seeds
+        const env = buildOfferEnvelope(t);
+        if (env) relayClient.send(newId, env);
+      }
+      relayClient.send(newId, { kind: 'sync-request', v: 1 });
+      relayClient.queryPresence([newId, ...list.map((c) => c.id)]);
+    } catch (err) {
+      console.warn('[relay] post-add broadcast failed:', err?.message || err);
+    }
+  }
   return list;
 });
 
@@ -428,6 +558,172 @@ ipcMain.handle('share:decode', (_event, link) => {
     return { ...parsed, senderInfo: senderInfo(parsed.sender) };
   }
   return parsed;
+});
+
+// ---------- relay + persisted seeds ----------
+//
+// The relay's only purpose is to tell contacts "hey, I'm online and I'm
+// seeding these files". No file bytes ever cross it. Signature of the
+// challenge = proof that we hold the private key for our БРАТАН-ID.
+
+function setupRelay() {
+  if (!myIdentity) {
+    console.warn('[relay] no identity, skipping relay setup');
+    return;
+  }
+  relayClient = new RelayClient({
+    identityData: myIdentity,
+    sign: identity.sign,
+    myId: myPublicId(),
+  });
+
+  relayClient.on('state', (s) => {
+    relayState = s;
+    pushRelayState();
+    if (s !== 'connected') presenceOnline = new Set();
+  });
+
+  relayClient.on('authenticated', async () => {
+    // Re-announce every currently-seeded файл to our contact list, and ask
+    // online contacts to mirror theirs back.
+    try {
+      const cli = await getClient();
+      for (const t of cli.torrents) {
+        if (!t?.infoHash) continue;
+        if (senderByInfoHash.get(t.infoHash) !== myPublicId()) continue;
+        const env = buildOfferEnvelope(t);
+        if (env) broadcastToContacts(env);
+      }
+      broadcastToContacts({ kind: 'sync-request', v: 1 });
+      const cs = contacts.load(userDataDir()).map((c) => c.id);
+      if (cs.length) relayClient.queryPresence(cs);
+    } catch (err) {
+      console.warn('[relay] auth post-hook failed:', err?.message || err);
+    }
+  });
+
+  relayClient.on('presence', (online) => {
+    presenceOnline = new Set(online.map((id) => String(id || '').toLowerCase()));
+    pushRelayState();
+  });
+
+  relayClient.on('msg', async ({ from, env }) => {
+    if (!from || !env || typeof env !== 'object') return;
+    // We only accept envelopes from addresses in our contact list. Unknown
+    // senders hitting us through the relay are dropped on the floor.
+    const rec = contacts.lookup(userDataDir(), from);
+    if (!rec) return;
+
+    if (env.kind === 'offer' && typeof env.share === 'string') {
+      const decoded = share.decode(env.share);
+      // Only accept signed share links where the signature is valid AND the
+      // signer matches the contact who routed the offer to us. This closes
+      // any room for one contact to impersonate another via the relay.
+      if (!decoded || decoded.kind !== 'share' || !decoded.valid || decoded.sender !== from) return;
+      const ih = String(env.infoHash || '').toLowerCase();
+      if (!ih) return;
+      incomingOffers.set(ih, { from, env, firstSeenAt: new Date().toISOString() });
+      pushOffersList();
+      return;
+    }
+
+    if (env.kind === 'revoke') {
+      const ih = String(env.infoHash || '').toLowerCase();
+      if (!ih) return;
+      if (incomingOffers.get(ih)?.from === from) {
+        incomingOffers.delete(ih);
+        pushOffersList();
+      }
+      return;
+    }
+
+    if (env.kind === 'sync-request') {
+      try {
+        const cli = await getClient();
+        for (const t of cli.torrents) {
+          if (!t?.infoHash) continue;
+          if (senderByInfoHash.get(t.infoHash) !== myPublicId()) continue;
+          const e = buildOfferEnvelope(t);
+          if (e) relayClient.send(from, e);
+        }
+      } catch { /* ignore */ }
+    }
+  });
+
+  relayClient.start();
+}
+
+async function restoreSeeds() {
+  const saved = seeds.load(userDataDir());
+  if (!saved.length) return;
+  for (const rec of saved) {
+    const existing = rec.filePaths?.filter((p) => {
+      try { fs.accessSync(p, fs.constants.R_OK); return true; } catch { return false; }
+    }) || [];
+    if (!existing.length) {
+      console.warn('[seeds] skipping', rec.infoHash, '— files missing:', rec.filePaths);
+      seeds.remove(userDataDir(), rec.infoHash);
+      continue;
+    }
+    try {
+      await startSeed(existing, mainWindow?.webContents);
+    } catch (err) {
+      console.warn('[seeds] resume failed for', rec.infoHash, err?.message || err);
+    }
+  }
+}
+
+// ---------- IPC: relay ----------
+
+ipcMain.handle('relay:state', () => ({
+  status: relayState,
+  connected: relayState === 'connected',
+  online: Array.from(presenceOnline),
+}));
+
+ipcMain.handle('relay:offers', () => listOffers());
+
+ipcMain.handle('relay:dismiss', (_event, infoHash) => {
+  const ih = String(infoHash || '').toLowerCase();
+  if (!ih) return false;
+  dismissedOfferHashes.add(ih);
+  pushOffersList();
+  return true;
+});
+
+ipcMain.handle('relay:accept', async (event, infoHash) => {
+  const ih = String(infoHash || '').toLowerCase();
+  const rec = incomingOffers.get(ih);
+  if (!rec) throw new Error('оффер не найден');
+  const shareURI = rec.env?.share;
+  if (!shareURI) throw new Error('оффер без ссылки');
+  // Delegate to the existing add-link path so the sender-badge logic etc.
+  // work identically whether you paste a link or accept it from a contact.
+  const parsed = share.decode(shareURI);
+  if (!parsed) throw new Error('неверная ссылка в оффере');
+  const cli = await getClient();
+  return new Promise((resolve, reject) => {
+    let resolved = false;
+    const torrent = cli.add(parsed.magnet, {
+      announce: WT_TRACKERS,
+      path: DEFAULT_DOWNLOAD_DIR,
+    });
+    const finish = () => {
+      if (resolved) return;
+      resolved = true;
+      if (torrent.infoHash && parsed.kind === 'share' && parsed.valid) {
+        senderByInfoHash.set(torrent.infoHash, parsed.sender);
+      }
+      attachTorrentListeners(torrent, event.sender);
+      // User explicitly accepted → move this offer out of the "pending" list.
+      incomingOffers.delete(ih);
+      pushOffersList();
+      resolve(snapshot(torrent));
+    };
+    torrent.on('infoHash', finish);
+    torrent.once('error', (err) => { if (!resolved) { resolved = true; reject(err); } });
+    setTimeout(finish, 3000);
+  });
 });
 
 // ---------- auto-update ----------

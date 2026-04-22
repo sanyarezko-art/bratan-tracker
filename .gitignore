@@ -14,3 +14,9 @@ desktop/.webpack/
 # OS junk
 Thumbs.db
 *.swp
+
+# Server virtualenv + build artifacts
+server/.venv/
+server/*.egg-info/
+server/__pycache__/
+server/app/__pycache__/

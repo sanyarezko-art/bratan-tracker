@@ -1,7 +1,7 @@
 {
   "name": "bratan-tracker-desktop",
   "productName": "БРАТАН",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "Анонимный P2P-туннель для обмена файлами. Без сервера, без логов.",
   "private": true,
   "main": "main.js",
@@ -21,7 +21,8 @@
   "dependencies": {
     "electron-updater": "^6.8.3",
     "qrcode": "^1.5.4",
-    "webtorrent": "^2.5.1"
+    "webtorrent": "^2.5.1",
+    "ws": "^8.20.0"
   },
   "devDependencies": {
     "electron": "^33.0.0",
@@ -41,6 +42,8 @@
       "identity.js",
       "contacts.js",
       "share.js",
+      "seeds.js",
+      "relay.js",
       "renderer/**/*",
       "assets/**/*",
       "!**/*.map",

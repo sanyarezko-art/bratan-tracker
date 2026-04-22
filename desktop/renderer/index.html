@@ -34,6 +34,10 @@
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-6l-2-2H5a2 2 0 0 0-2 2z"/></svg>
         Папка
       </button>
+      <span class="pill muted relay-pill" id="relay-pill" title="Статус сигнального узла">
+        <span class="dot" id="relay-dot" aria-hidden="true"></span>
+        <span id="relay-label">нет связи</span>
+      </span>
       <span class="pill ok" id="app-version" title="Версия">v—</span>
     </div>
   </header>
@@ -119,6 +123,18 @@
       </p>
     </section>
 
+    <section class="card card-offers" id="offers-card" hidden>
+      <div class="card-head">
+        <h3>Друзья предлагают</h3>
+        <span id="offers-count-pill" class="pill ok">0</span>
+      </div>
+      <p class="muted small">
+        Это активные раздачи твоих контактов прямо сейчас. Приняв оффер, ты
+        начнёшь скачивать файл напрямую с друга, по P2P.
+      </p>
+      <div id="offers" class="offers" aria-live="polite"></div>
+    </section>
+
     <section class="card" id="contacts-card">
       <div class="card-head">
         <h3>Контакты</h3>
@@ -190,11 +206,28 @@
   <template id="contact-tpl">
     <div class="contact">
       <div class="contact-main">
-        <div class="contact-nick"></div>
+        <div class="contact-nick">
+          <span class="presence-dot" title="Оффлайн"></span>
+          <span class="nick-text"></span>
+        </div>
         <div class="contact-id muted small"></div>
       </div>
       <button type="button" class="btn small danger remove-contact">Удалить</button>
     </div>
+  </template>
+
+  <template id="offer-tpl">
+    <article class="offer">
+      <div class="offer-head">
+        <div class="offer-name"></div>
+        <div class="offer-meta muted small"></div>
+      </div>
+      <div class="offer-from muted small"></div>
+      <div class="offer-actions">
+        <button type="button" class="btn primary small accept-offer">Принять</button>
+        <button type="button" class="btn small subtle dismiss-offer">Скрыть</button>
+      </div>
+    </article>
   </template>
 
   <script src="renderer.js"></script>
