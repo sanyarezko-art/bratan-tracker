@@ -76,6 +76,8 @@ jobs:
             desktop/dist/*.dmg
             desktop/dist/*.AppImage
             desktop/dist/*.zip
+            desktop/dist/*.blockmap
+            desktop/dist/latest*.yml
           if-no-files-found: warn
           retention-days: 14
 
@@ -96,8 +98,16 @@ jobs:
       - name: Flatten artifacts
         run: |
           mkdir -p release
-          find artifacts -type f \( -name '*.exe' -o -name '*.dmg' -o -name '*.AppImage' -o -name '*.zip' \) -exec cp {} release/ \;
-          (cd release && sha256sum * > SHA256SUMS.txt)
+          find artifacts -type f \( \
+              -name '*.exe' -o \
+              -name '*.dmg' -o \
+              -name '*.AppImage' -o \
+              -name '*.zip' -o \
+              -name '*.blockmap' -o \
+              -name 'latest*.yml' \
+            \) -exec cp -n {} release/ \;
+          # Checksum only the user-facing installers, not the auto-updater metadata.
+          (cd release && sha256sum *.exe *.dmg *.AppImage 2>/dev/null > SHA256SUMS.txt || true)
           ls -la release
 
       - name: Resolve tag

@@ -383,6 +383,98 @@ function initStreams() {
   });
 }
 
+// ---------- auto-update banner ----------
+
+let updateDismissedAt = 0;
+
+function renderUpdateBanner(state) {
+  const banner = $('#update-banner');
+  const title = $('#update-title');
+  const sub = $('#update-subtitle');
+  const action = $('#btn-update-action');
+  if (!banner || !state) return;
+
+  const s = state.status;
+  const ver = state.version ? ('v' + state.version) : '';
+
+  // We keep the banner hidden for idle/checking/up-to-date and hide it while
+  // the user explicitly dismissed the latest prompt for this version.
+  if (s === 'idle' || s === 'checking' || s === 'up-to-date') {
+    banner.hidden = true;
+    return;
+  }
+
+  if (updateDismissedAt && state.version && updateDismissedAt === state.version) {
+    banner.hidden = true;
+    return;
+  }
+
+  if (s === 'available') {
+    title.textContent = 'Новая версия ' + (ver || '');
+    sub.textContent = state.canAutoInstall
+      ? 'Готовлю обновление…'
+      : 'На macOS без подписи автоустановка невозможна — открою страницу, скачай DMG.';
+    action.textContent = state.canAutoInstall ? 'Жду загрузку…' : 'Открыть страницу релиза';
+    action.disabled = !!state.canAutoInstall;
+    action.dataset.role = state.canAutoInstall ? 'wait' : 'open';
+    banner.hidden = false;
+    return;
+  }
+
+  if (s === 'downloading') {
+    title.textContent = 'Качаю ' + (ver || 'обновление') + '…';
+    const pct = Number.isFinite(state.percent) ? state.percent : 0;
+    sub.textContent = pct + '%';
+    action.textContent = 'Жду загрузку…';
+    action.disabled = true;
+    action.dataset.role = 'wait';
+    banner.hidden = false;
+    return;
+  }
+
+  if (s === 'ready') {
+    title.textContent = 'Обновление ' + (ver || '') + ' готово';
+    sub.textContent = 'Перезапустить сейчас или при следующем закрытии.';
+    action.textContent = 'Установить и перезапустить';
+    action.disabled = false;
+    action.dataset.role = 'install';
+    banner.hidden = false;
+    return;
+  }
+
+  if (s === 'error') {
+    title.textContent = 'Не получилось проверить обновление';
+    sub.textContent = state.error || '';
+    action.textContent = 'Открыть релизы вручную';
+    action.disabled = false;
+    action.dataset.role = 'open';
+    banner.hidden = false;
+  }
+}
+
+function initUpdateBanner() {
+  const action = $('#btn-update-action');
+  const dismiss = $('#btn-update-dismiss');
+  if (!action || !dismiss) return;
+
+  action.addEventListener('click', async () => {
+    const role = action.dataset.role;
+    if (role === 'install') {
+      await api.installUpdate();
+    } else if (role === 'open') {
+      await api.openReleasePage();
+    }
+  });
+  dismiss.addEventListener('click', async () => {
+    const state = await api.getUpdateState();
+    updateDismissedAt = state?.version || 1;
+    $('#update-banner').hidden = true;
+  });
+
+  api.onUpdateState((state) => renderUpdateBanner(state));
+  api.getUpdateState().then(renderUpdateBanner).catch(() => {});
+}
+
 async function restoreExisting() {
   try {
     const list = await api.listTorrents();
@@ -400,6 +492,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initContactForm();
   initVersion();
   initIdentity();
+  initUpdateBanner();
   initStreams();
   refreshContacts();
   restoreExisting();

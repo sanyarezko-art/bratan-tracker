@@ -15,6 +15,7 @@ const identity = require('./identity');
 const contacts = require('./contacts');
 const share = require('./share');
 const QRCode = require('qrcode');
+const { autoUpdater } = require('electron-updater');
 
 // webtorrent 2.x is ESM-only with top-level await, so it can't be require()'d
 // from our CommonJS main process. Use a one-shot dynamic import.
@@ -215,6 +216,7 @@ app.whenReady().then(() => {
   }
   createMainWindow();
   maybeOpenPendingLink(process.argv);
+  setupAutoUpdater();
 });
 
 app.on('window-all-closed', () => {
@@ -426,4 +428,126 @@ ipcMain.handle('share:decode', (_event, link) => {
     return { ...parsed, senderInfo: senderInfo(parsed.sender) };
   }
   return parsed;
+});
+
+// ---------- auto-update ----------
+//
+// Release channel: GitHub Releases of this repo. electron-updater grabs
+// latest.yml / latest-mac.yml / latest-linux.yml from the release assets.
+//
+// Honesty caveat: on macOS without code signing, Squirrel.Mac refuses to
+// apply the update. We still run the *check*, but we never autoDownload
+// there — instead we surface a banner that opens the GitHub Release page
+// so the user can re-install manually. Windows NSIS and Linux AppImage
+// don't need signing and do a full silent download + quit-and-install.
+
+const UPDATE_CAN_AUTO_INSTALL = process.platform !== 'darwin';
+let updateState = {
+  status: 'idle',        // idle | checking | up-to-date | available | downloading | ready | error
+  version: null,
+  releaseUrl: null,
+  percent: 0,
+  error: null,
+  canAutoInstall: UPDATE_CAN_AUTO_INSTALL,
+};
+
+function broadcastUpdate() {
+  if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+    mainWindow.webContents.send('update:state', updateState);
+  }
+}
+
+function setupAutoUpdater() {
+  if (!app.isPackaged) {
+    // Dev runs have no useful update to find.
+    updateState = { ...updateState, status: 'idle' };
+    return;
+  }
+
+  autoUpdater.autoDownload = UPDATE_CAN_AUTO_INSTALL;
+  autoUpdater.autoInstallOnAppQuit = UPDATE_CAN_AUTO_INSTALL;
+  autoUpdater.logger = {
+    info: (m) => console.log('[updater]', m),
+    warn: (m) => console.warn('[updater]', m),
+    error: (m) => console.error('[updater]', m),
+    debug: () => {},
+  };
+
+  autoUpdater.on('checking-for-update', () => {
+    updateState = { ...updateState, status: 'checking', error: null };
+    broadcastUpdate();
+  });
+  autoUpdater.on('update-available', (info) => {
+    updateState = {
+      ...updateState,
+      status: UPDATE_CAN_AUTO_INSTALL ? 'downloading' : 'available',
+      version: info?.version || null,
+      releaseUrl: info?.version
+        ? `https://github.com/sanyarezko-art/bratan-tracker/releases/tag/v${info.version}`
+        : 'https://github.com/sanyarezko-art/bratan-tracker/releases/latest',
+      error: null,
+    };
+    broadcastUpdate();
+  });
+  autoUpdater.on('update-not-available', () => {
+    updateState = { ...updateState, status: 'up-to-date', error: null };
+    broadcastUpdate();
+  });
+  autoUpdater.on('download-progress', (p) => {
+    updateState = {
+      ...updateState,
+      status: 'downloading',
+      percent: Math.max(0, Math.min(100, Math.round(p?.percent || 0))),
+    };
+    broadcastUpdate();
+  });
+  autoUpdater.on('update-downloaded', (info) => {
+    updateState = {
+      ...updateState,
+      status: 'ready',
+      version: info?.version || updateState.version,
+      percent: 100,
+      error: null,
+    };
+    broadcastUpdate();
+  });
+  autoUpdater.on('error', (err) => {
+    updateState = {
+      ...updateState,
+      status: 'error',
+      error: err?.message || String(err),
+    };
+    broadcastUpdate();
+  });
+
+  // First check ~5 s after startup, then every 6 h.
+  setTimeout(() => { autoUpdater.checkForUpdates().catch(() => {}); }, 5000);
+  setInterval(() => { autoUpdater.checkForUpdates().catch(() => {}); }, 6 * 60 * 60 * 1000);
+}
+
+ipcMain.handle('update:state', () => updateState);
+
+ipcMain.handle('update:check', async () => {
+  if (!app.isPackaged) {
+    updateState = { ...updateState, status: 'idle' };
+    return updateState;
+  }
+  try { await autoUpdater.checkForUpdates(); } catch (err) {
+    updateState = { ...updateState, status: 'error', error: err?.message || String(err) };
+    broadcastUpdate();
+  }
+  return updateState;
+});
+
+ipcMain.handle('update:install', () => {
+  if (updateState.status !== 'ready' || !UPDATE_CAN_AUTO_INSTALL) return false;
+  // quitAndInstall(isSilent, isForceRunAfter)
+  autoUpdater.quitAndInstall(false, true);
+  return true;
+});
+
+ipcMain.handle('update:open-release', () => {
+  shell.openExternal(updateState.releaseUrl
+    || 'https://github.com/sanyarezko-art/bratan-tracker/releases/latest');
+  return true;
 });

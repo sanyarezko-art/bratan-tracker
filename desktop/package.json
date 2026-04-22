@@ -1,7 +1,7 @@
 {
   "name": "bratan-tracker-desktop",
   "productName": "БРАТАН",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Анонимный P2P-туннель для обмена файлами. Без сервера, без логов.",
   "private": true,
   "main": "main.js",
@@ -19,6 +19,7 @@
     "dist:linux": "electron-builder --linux"
   },
   "dependencies": {
+    "electron-updater": "^6.8.3",
     "qrcode": "^1.5.4",
     "webtorrent": "^2.5.1"
   },
@@ -98,6 +99,13 @@
       ],
       "category": "Network"
     },
-    "publish": null
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "sanyarezko-art",
+        "repo": "bratan-tracker",
+        "releaseType": "release"
+      }
+    ]
   }
 }
