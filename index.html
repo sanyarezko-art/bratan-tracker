@@ -2,248 +2,261 @@
 <html lang="ru">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <meta name="color-scheme" content="dark light" />
-  <meta name="referrer" content="no-referrer" />
-  <meta name="robots" content="noindex, nofollow, noarchive" />
-  <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self';
-                 script-src 'self' https://cdn.jsdelivr.net;
-                 style-src 'self' 'unsafe-inline';
-                 img-src 'self' data: blob:;
-                 media-src 'self' blob:;
-                 connect-src *;
-                 worker-src 'self';
-                 frame-src 'none';
-                 object-src 'none';
-                 base-uri 'none';
-                 form-action 'none';" />
-  <title>БРАТАН-трекер — анонимный P2P-обмен в браузере</title>
-  <meta name="description" content="Анонимный WebTorrent-клиент. Файлы идут напрямую между браузерами по WebRTC. Без сервера, без логов, без куки." />
-  <meta name="theme-color" content="#0b0f14" />
-  <link rel="icon" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='14' fill='%23111827'/><text x='50%25' y='58%25' font-family='system-ui,Arial' font-size='28' font-weight='800' text-anchor='middle' fill='%236ee7b7'>Б</text></svg>" />
-  <link rel="stylesheet" href="styles.css" />
-  <link rel="dns-prefetch" href="https://cdn.jsdelivr.net" />
-  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin="anonymous" />
-  <link rel="preconnect" href="wss://tracker.openwebtorrent.com" crossorigin="anonymous" />
-  <link rel="preconnect" href="wss://tracker.webtorrent.dev" crossorigin="anonymous" />
-  <link rel="preconnect" href="wss://tracker.btorrent.xyz" crossorigin="anonymous" />
-  <link rel="preconnect" href="wss://tracker.files.fm:7073" crossorigin="anonymous" />
-  <link rel="modulepreload"
-        href="https://cdn.jsdelivr.net/npm/webtorrent@2.5.1/dist/webtorrent.min.js"
-        integrity="sha384-ZAcDhhMA289AwPg3hhQVtWPkT5uXv7JhR762PImaYtqHM+Dnw2kvViMJMchSbZdb"
-        crossorigin="anonymous"
-        referrerpolicy="no-referrer" />
+  <title>БРАТАН — анонимный P2P-туннель для обмена файлами</title>
+  <meta name="description" content="Десктоп-приложение для прямой передачи файлов между компьютерами. Без сервера, без логов, без аккаунтов. Windows, macOS, Linux — бесплатно." />
+
+  <meta property="og:title" content="БРАТАН — анонимный P2P-туннель" />
+  <meta property="og:description" content="Прямой туннель между твоим и чужим ПК. Перекинул файл — поделился ссылкой. Windows · macOS · Linux." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://sanyarezko-art.github.io/bratan-tracker/" />
+  <link rel="canonical" href="https://sanyarezko-art.github.io/bratan-tracker/" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0%25' stop-color='%236ee7b7'/%3E%3Cstop offset='55%25' stop-color='%2360a5fa'/%3E%3Cstop offset='100%25' stop-color='%23c084fc'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='14' fill='url(%23g)'/%3E%3Ctext x='50%25' y='54%25' text-anchor='middle' dominant-baseline='middle' font-family='Inter, system-ui, sans-serif' font-size='38' font-weight='800' fill='%230b0f14'%3E%D0%91%3C/text%3E%3C/svg%3E" />
+  <style>
+    :root {
+      --bg: #0b0f14;
+      --fg: #e6edf3;
+      --muted: #9aa4b2;
+      --border: rgba(255,255,255,0.08);
+      --card: rgba(255,255,255,0.04);
+      --card-strong: rgba(255,255,255,0.07);
+      --ok: #6ee7b7;
+      --warn: #fbbf24;
+      --grad: linear-gradient(135deg, #6ee7b7 0%, #60a5fa 55%, #c084fc 100%);
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--fg);
+      font: 15px/1.55 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+    a { color: var(--ok); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    /* aurora */
+    .aurora { position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; filter: blur(90px); opacity: 0.45; }
+    .aurora span { position: absolute; width: 560px; height: 560px; border-radius: 50%; mix-blend-mode: screen; animation: float 22s ease-in-out infinite; }
+    .aurora span:nth-child(1) { background: #6ee7b7; top: -160px; left: -140px; }
+    .aurora span:nth-child(2) { background: #60a5fa; top: 30%; right: -180px; animation-delay: -7s; }
+    .aurora span:nth-child(3) { background: #c084fc; bottom: -200px; left: 20%; animation-delay: -14s; }
+    @keyframes float {
+      0%,100% { transform: translate(0,0) scale(1); }
+      33% { transform: translate(50px,-40px) scale(1.1); }
+      66% { transform: translate(-40px,25px) scale(0.92); }
+    }
+
+    /* layout */
+    header, main, footer { position: relative; z-index: 1; max-width: 900px; margin: 0 auto; padding: 0 24px; }
+    header { display: flex; align-items: center; justify-content: space-between; padding: 20px 24px; }
+    .brand { display: flex; align-items: center; gap: 12px; }
+    .logo {
+      width: 40px; height: 40px; border-radius: 10px;
+      background: var(--grad); color: #0b0f14;
+      display: grid; place-items: center; font-weight: 800;
+      box-shadow: 0 6px 18px rgba(110,231,183,0.25);
+    }
+    .brand h1 { margin: 0; font-size: 18px; font-weight: 800; letter-spacing: 0.01em; }
+    .brand .tag { color: var(--muted); font-size: 11px; display: block; }
+    header nav a { color: var(--muted); font-size: 13px; margin-left: 18px; }
+
+    .hero { padding: 48px 0 20px; }
+    .hero h2 { margin: 0 0 14px; font-size: 44px; line-height: 1.08; font-weight: 800; letter-spacing: -0.01em; }
+    .hero h2 .grad { background: var(--grad); background-clip: text; -webkit-background-clip: text; color: transparent; }
+    .hero p.lead { margin: 0 0 26px; font-size: 17px; color: var(--muted); max-width: 680px; }
+
+    .downloads { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 14px 0 10px; }
+    .dl {
+      display: block;
+      padding: 18px 16px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      text-align: center;
+      transition: transform 0.1s ease, background 0.15s ease, border-color 0.15s ease;
+    }
+    .dl:hover { background: var(--card-strong); border-color: rgba(255,255,255,0.16); transform: translateY(-2px); text-decoration: none; }
+    .dl .os-ico { font-size: 26px; display: block; margin-bottom: 6px; }
+    .dl .os-name { font-weight: 700; font-size: 14px; color: var(--fg); }
+    .dl .os-file { font-size: 11px; color: var(--muted); margin-top: 2px; font-family: 'SF Mono', Monaco, Consolas, monospace; }
+    .dl.detected { border-color: var(--ok); background: rgba(110,231,183,0.08); }
+    .dl.detected::after { content: 'твоя система'; display: inline-block; margin-top: 6px; font-size: 10px; color: var(--ok); text-transform: uppercase; letter-spacing: 0.06em; }
+    .dl-note { color: var(--muted); font-size: 12px; margin-top: 6px; }
+    .dl-note a { color: var(--muted); text-decoration: underline; }
+
+    .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; margin: 38px 0 24px; }
+    .feature {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 16px;
+    }
+    .feature h3 { margin: 0 0 6px; font-size: 14px; font-weight: 700; }
+    .feature p { margin: 0; color: var(--muted); font-size: 13px; }
+
+    .how {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 22px 24px;
+      margin: 20px 0;
+    }
+    .how h3 { margin: 0 0 12px; font-size: 16px; }
+    .how ol { margin: 0; padding-left: 22px; color: var(--muted); }
+    .how ol li { margin: 4px 0; }
+    .how ol li strong { color: var(--fg); }
+
+    details.trust { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 14px 18px; margin: 18px 0; }
+    details.trust summary { cursor: pointer; font-weight: 700; }
+    details.trust div { color: var(--muted); font-size: 13px; margin-top: 10px; }
+    details.trust code { background: rgba(0,0,0,0.3); padding: 1px 6px; border-radius: 6px; font-size: 12px; }
+
+    footer { padding: 22px 24px 40px; color: var(--muted); font-size: 12px; text-align: center; }
+    footer a { color: var(--muted); text-decoration: underline; }
+
+    @media (max-width: 620px) {
+      .hero h2 { font-size: 30px; }
+      .downloads { grid-template-columns: 1fr; }
+      header nav a { margin-left: 10px; }
+    }
+  </style>
 </head>
 <body>
-  <div class="aurora" aria-hidden="true">
-    <span class="aurora-blob aurora-blob-a"></span>
-    <span class="aurora-blob aurora-blob-b"></span>
-    <span class="aurora-blob aurora-blob-c"></span>
-  </div>
+  <div class="aurora" aria-hidden="true"><span></span><span></span><span></span></div>
 
-  <noscript>
-    <div class="noscript">
-      Для работы нужен JavaScript — всё крутится прямо в браузере.
-    </div>
-  </noscript>
-
-  <header class="topbar">
+  <header>
     <div class="brand">
-      <span class="logo" aria-hidden="true">Б</span>
-      <div class="brand-text">
-        <h1>БРАТАН-трекер</h1>
-        <span class="tag">анонимный P2P · в браузере · без логов</span>
+      <span class="logo">Б</span>
+      <div>
+        <h1>БРАТАН</h1>
+        <span class="tag">анонимный P2P · без логов</span>
       </div>
     </div>
-    <div class="topbar-status">
-      <span class="status-pill"><span class="pulse-dot"></span> онлайн</span>
-    </div>
+    <nav>
+      <a href="#how">как работает</a>
+      <a href="https://github.com/sanyarezko-art/bratan-tracker" target="_blank" rel="noopener">github</a>
+    </nav>
   </header>
 
   <main>
     <section class="hero">
-      <div class="hero-pill"><span class="pulse-dot"></span> P2P · только браузеры</div>
-      <h2>Файлы летят <span class="grad-text">напрямую</span> между вкладками</h2>
-      <p>
-        Брось файл — клиент соберёт торрент и откроет WebRTC-канал к тому, кто
-        открыл твою share-ссылку. Байты идут <strong>напрямую</strong>, без сервера
-        посередине. Ничего не логируется, кука даже не ставится.
+      <h2>Прямой <span class="grad">P2P-туннель</span><br />между твоим и чужим ПК</h2>
+      <p class="lead">
+        Брось файл в окно приложения — получи magnet-ссылку. Отправь её
+        получателю. Байты идут <strong>напрямую</strong>, без нашего сервера
+        и без логов. Бесплатно. Windows, macOS, Linux.
+      </p>
+
+      <div class="downloads" id="downloads" role="list">
+        <a class="dl" data-os="win" role="listitem"
+           href="https://github.com/sanyarezko-art/bratan-tracker/releases/latest"
+           target="_blank" rel="noopener">
+          <span class="os-ico">🪟</span>
+          <span class="os-name">Windows</span>
+          <span class="os-file">Setup .exe · Portable</span>
+        </a>
+        <a class="dl" data-os="mac" role="listitem"
+           href="https://github.com/sanyarezko-art/bratan-tracker/releases/latest"
+           target="_blank" rel="noopener">
+          <span class="os-ico">🍎</span>
+          <span class="os-name">macOS</span>
+          <span class="os-file">.dmg · Intel + Apple&nbsp;Silicon</span>
+        </a>
+        <a class="dl" data-os="linux" role="listitem"
+           href="https://github.com/sanyarezko-art/bratan-tracker/releases/latest"
+           target="_blank" rel="noopener">
+          <span class="os-ico">🐧</span>
+          <span class="os-name">Linux</span>
+          <span class="os-file">.AppImage x86_64</span>
+        </a>
+      </div>
+      <p class="dl-note">
+        Все сборки — на
+        <a href="https://github.com/sanyarezko-art/bratan-tracker/releases/latest" target="_blank" rel="noopener">странице релизов GitHub</a>.
+        SHA-256 чексумы — в файле <code>SHA256SUMS.txt</code> рядом.
       </p>
     </section>
 
-    <section id="create" class="card card-create">
-      <div class="card-head">
-        <h3>Создать раздачу</h3>
-        <span class="pill pill-ok">безопасно · только браузер</span>
+    <section class="features">
+      <div class="feature">
+        <h3>Без сервера</h3>
+        <p>Файл не проходит через наш сервер — только TCP/UDP/WebRTC между двумя компьютерами.</p>
       </div>
-      <p class="muted">
-        Перетяни файлы сюда или выбери — magnet и share-ссылка появятся ниже.
-        Держи вкладку открытой, пока хочешь раздавать.
-      </p>
-      <div id="drop-zone" class="drop-zone" aria-label="Брось файлы сюда">
-        <div class="drop-inner">
-          <svg class="drop-ico" viewBox="0 0 24 24" width="42" height="42" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-          <div class="drop-text">Брось файлы сюда</div>
-          <div class="drop-sub muted">или</div>
-          <label class="btn">
-            <input id="seed-file-input" type="file" multiple hidden />
-            Выбрать файлы…
-          </label>
-          <div class="muted small">Файлы не загружаются на сервер — они раздаются прямо из твоего браузера.</div>
-        </div>
+      <div class="feature">
+        <h3>Без аккаунтов</h3>
+        <p>Ни регистрации, ни e-mail, ни телефона. Открыл, бросил файл — поделился ссылкой.</p>
+      </div>
+      <div class="feature">
+        <h3>Без логов</h3>
+        <p>Приложение не собирает аналитику. Что ты раздаёшь — знаешь только ты и получатель.</p>
+      </div>
+      <div class="feature">
+        <h3>Большие файлы</h3>
+        <p>Полный BitTorrent-стек: TCP, UDP, uTP, DHT, LSD, WebRTC. Отдаёт и принимает гигабайты.</p>
       </div>
     </section>
 
-    <section id="add" class="card">
-      <div class="card-head">
-        <h3>Открыть чужую раздачу</h3>
-        <span class="pill pill-muted">без посредников</span>
-      </div>
-      <p class="muted">
-        Вставь magnet от друга или share-ссылку — файлы появятся ниже.
-      </p>
-      <form id="add-magnet-form" class="row">
-        <input
-          id="magnet-input"
-          type="text"
-          inputmode="url"
-          autocomplete="off"
-          spellcheck="false"
-          placeholder="magnet:?xt=urn:btih:… или https://…/#magnet=…"
-          aria-label="Magnet-ссылка"
-        />
-        <button type="submit" class="btn primary">Открыть</button>
-      </form>
+    <section class="how" id="how">
+      <h3>Как работает</h3>
+      <ol>
+        <li><strong>Скачай и поставь БРАТАН</strong> на оба ПК — твой и того, кому отправляешь.</li>
+        <li><strong>Открой приложение.</strong> Перетяни файл в окно — получишь magnet-ссылку.</li>
+        <li><strong>Отправь magnet</strong> собеседнику любым способом (мессенджер, e-mail).</li>
+        <li>Он вставит её в своём БРАТАНе — файл пойдёт <strong>напрямую</strong> от тебя к нему.</li>
+        <li>Оставь приложение открытым, пока идёт передача.</li>
+      </ol>
     </section>
 
-    <section class="card" id="torrents-card">
-      <div class="card-head">
-        <h3>Активные раздачи и загрузки</h3>
-        <span id="torrents-count-pill" class="pill pill-muted">0</span>
+    <details class="trust">
+      <summary>Windows / macOS ругается «неизвестный издатель» — это нормально?</summary>
+      <div>
+        <p>
+          Да. Мы не покупаем сертификат Microsoft / Apple за $200–500/год — поэтому
+          при первом запуске ОС покажет предупреждение.
+        </p>
+        <p><strong>Windows:</strong> в окне SmartScreen нажми «Подробнее» → «Выполнить в любом случае».</p>
+        <p><strong>macOS:</strong> правый клик по .app → «Открыть» → подтверди один раз.
+           Если macOS вообще не даёт — Терминал, <code>xattr -dr com.apple.quarantine /Applications/Bratan.app</code>.</p>
+        <p><strong>Linux:</strong> <code>chmod +x Bratan-*.AppImage</code> и запускай.</p>
+        <p>
+          Хочешь убедиться, что качаешь оригинал — посчитай SHA-256 от скачанного
+          файла и сравни со строкой в <code>SHA256SUMS.txt</code> в релизе.
+        </p>
       </div>
-      <div class="client-stats" id="client-stats">
-        <span><strong>Пиры:</strong> <span id="stat-peers">0</span></span>
-        <span><strong>↓</strong> <span id="stat-down">0 Б/с</span></span>
-        <span><strong>↑</strong> <span id="stat-up">0 Б/с</span></span>
-        <span><strong>Ratio:</strong> <span id="stat-ratio">0.00</span></span>
-      </div>
-      <div id="torrents" class="torrents" aria-live="polite">
-        <div class="empty muted" id="torrents-empty">Пока пусто. Открой magnet или создай раздачу выше.</div>
-      </div>
-    </section>
+    </details>
 
-    <section id="catalog" class="catalog card">
-      <div class="card-head catalog-head">
-        <h3>Демо-раздачи</h3>
-        <input
-          id="catalog-search"
-          type="search"
-          placeholder="Поиск…"
-          aria-label="Поиск по каталогу"
-        />
+    <details class="trust">
+      <summary>Где исходный код?</summary>
+      <div>
+        <p>
+          Полностью открыт: <a href="https://github.com/sanyarezko-art/bratan-tracker" target="_blank" rel="noopener">github.com/sanyarezko-art/bratan-tracker</a>.
+          Клиент — папка <code>desktop/</code>. Сборки автоматически делает GitHub Actions
+          на каждый тег <code>v*</code>.
+        </p>
       </div>
-      <p class="muted">
-        WebRTC-совместимые раздачи, чтобы быстро проверить, что канал работает.
-        Чтобы добавить свою — открой pull request в <code>catalog.json</code>.
-      </p>
-      <div id="catalog-list" class="catalog-list"></div>
-      <p class="muted small" id="catalog-empty" hidden>Ничего не найдено.</p>
-    </section>
-
-    <section id="safety" class="safety">
-      <h3>Прочитай перед использованием</h3>
-      <ul>
-        <li>
-          <strong>Это не магическая анонимность.</strong> Как в любом торрент-клиенте,
-          IP виден пирам, с которыми браузер устанавливает соединение напрямую.
-          Если нужна полная анонимность — запускай сайт через VPN или Tor <em>до</em>
-          открытия.
-        </li>
-        <li>
-          <strong>TURN и релеи.</strong> Когда напрямую не проходит (злой NAT),
-          WebRTC проходит через TURN-сервер. Трафик там зашифрован (DTLS-SRTP),
-          расшифровать его релей не может — но сам факт соединения видит.
-        </li>
-        <li>
-          <strong>Мы ничего не храним.</strong> Репозиторий держит только JSON-каталог.
-          Файлы идут напрямую между браузерами. Логов нет.
-        </li>
-        <li>
-          <strong>Данные в IndexedDB.</strong> Скачанные куски живут в памяти вкладки
-          и в IndexedDB браузера, чтобы можно было продолжить после перезагрузки.
-          Сбросить — в DevTools → Application → IndexedDB.
-        </li>
-        <li>
-          <strong>Соблюдай закон и авторские права.</strong> Не раздавай то, на что
-          у тебя нет прав.
-        </li>
-      </ul>
-    </section>
-
-    <section id="about" class="card">
-      <h3>О проекте</h3>
-      <p>
-        <strong>БРАТАН-трекер</strong> — статический фронт на GitHub Pages.
-        Под капотом — <a href="https://webtorrent.io" rel="noopener">WebTorrent</a>
-        поверх WebRTC. Сигналинг — публичные WSS-трекеры
-        (<code>tracker.openwebtorrent.com</code>,
-        <code>tracker.webtorrent.dev</code>,
-        <code>tracker.btorrent.xyz</code>,
-        <code>tracker.files.fm:7073</code>).
-        ICE — Google/Cloudflare STUN + публичные TURN-серверы.
-      </p>
-      <p>
-        Сайт не шлёт аналитику, не ставит куки, не грузит сторонние шрифты. Внешний
-        код — только WebTorrent и QR-генератор с jsdelivr, пришпиленные по Subresource Integrity.
-      </p>
-      <p class="muted small">
-        Исходники: <a href="https://github.com/sanyarezko-art/bratan-tracker" rel="noopener">github.com/sanyarezko-art/bratan-tracker</a> · Лицензия MIT.
-      </p>
-    </section>
+    </details>
   </main>
 
-  <footer class="footer">
-    <span>Статический сайт. Сервера нет. Логов нет.</span>
-    <span class="muted small">Сборка: <span id="build-id">dev</span></span>
+  <footer>
+    Бесплатно · без аккаунтов · без сервера ·
+    <a href="https://github.com/sanyarezko-art/bratan-tracker" target="_blank" rel="noopener">GitHub</a>
   </footer>
 
-  <template id="torrent-tpl">
-    <article class="torrent" data-infohash="">
-      <div class="torrent-head">
-        <div class="torrent-name"></div>
-        <div class="torrent-meta"></div>
-      </div>
-      <div class="torrent-progress"><div></div></div>
-      <div class="torrent-stats muted small"></div>
-      <div class="torrent-share">
-        <div class="share-row">
-          <label>Magnet</label>
-          <input class="magnet-field" type="text" readonly />
-          <button class="btn small copy-magnet" type="button">Скопировать</button>
-        </div>
-        <div class="share-row">
-          <label>Ссылка</label>
-          <input class="share-field" type="text" readonly />
-          <button class="btn small copy-share" type="button">Скопировать</button>
-          <button class="btn small toggle-qr" type="button">QR</button>
-        </div>
-        <div class="qr-box" hidden></div>
-      </div>
-      <div class="torrent-files"></div>
-      <div class="torrent-actions">
-        <button class="btn small danger remove-torrent" type="button">Удалить</button>
-      </div>
-    </article>
-  </template>
-
-  <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"
-          integrity="sha384-8FWZA6BGMXhsfO+BLtrJK0We6gg5o1JyO8xQm6peWDEUs17ACA5ziE/NIAkl9z2k"
-          crossorigin="anonymous"
-          referrerpolicy="no-referrer"></script>
-  <div id="wt-load-error" class="error" hidden>
-    Не удалось загрузить WebTorrent из CDN. Проверь сеть и перезагрузи страницу.
-  </div>
-  <script type="module" src="app.js"></script>
+  <script>
+    (function detectOS() {
+      var ua = navigator.userAgent.toLowerCase();
+      var plat = (navigator.platform || '').toLowerCase();
+      var os = null;
+      if (/windows|win32|win64/.test(ua) || plat.indexOf('win') !== -1) os = 'win';
+      else if (/macintosh|mac os x|mac_powerpc/.test(ua) || plat.indexOf('mac') !== -1) os = 'mac';
+      else if (/linux|x11/.test(ua) && plat.indexOf('linux') !== -1) os = 'linux';
+      if (!os) return;
+      var el = document.querySelector('.dl[data-os="' + os + '"]');
+      if (el) el.classList.add('detected');
+    })();
+  </script>
 </body>
 </html>

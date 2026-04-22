@@ -1,0 +1,258 @@
+/* БРАТАН desktop — renderer styles. Glassmorphism + subtle aurora. */
+
+:root {
+  --bg-solid: #0b0f14;
+  --fg: #e6edf3;
+  --muted: #9aa4b2;
+  --border: rgba(255, 255, 255, 0.08);
+  --card-bg: rgba(255, 255, 255, 0.04);
+  --card-bg-strong: rgba(255, 255, 255, 0.06);
+  --ok: #6ee7b7;
+  --warn: #fbbf24;
+  --bad: #f87171;
+  --grad-main: linear-gradient(135deg, #6ee7b7 0%, #60a5fa 55%, #c084fc 100%);
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; height: 100%; }
+body {
+  background: var(--bg-solid);
+  color: var(--fg);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  overflow-x: hidden;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+input, textarea { -webkit-user-select: text; user-select: text; }
+
+/* ---------- aurora ---------- */
+.aurora {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  filter: blur(60px);
+  opacity: 0.55;
+}
+.aurora-blob {
+  position: absolute;
+  width: 520px;
+  height: 520px;
+  border-radius: 50%;
+  mix-blend-mode: screen;
+  animation: float 22s ease-in-out infinite;
+}
+.aurora-blob.a { background: #6ee7b7; top: -140px; left: -120px; animation-delay: 0s; }
+.aurora-blob.b { background: #60a5fa; top: 30%;   right: -160px; animation-delay: -7s; }
+.aurora-blob.c { background: #c084fc; bottom: -180px; left: 20%; animation-delay: -14s; }
+@keyframes float {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(40px, -30px) scale(1.1); }
+  66% { transform: translate(-30px, 20px) scale(0.92); }
+}
+
+/* ---------- layout ---------- */
+main { position: relative; z-index: 1; max-width: 880px; margin: 0 auto; padding: 0 20px 32px; }
+
+.topbar {
+  position: relative; z-index: 1;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 20px;
+  max-width: 880px; margin: 0 auto;
+  -webkit-app-region: drag;
+}
+.topbar button, .topbar input { -webkit-app-region: no-drag; }
+.brand { display: flex; align-items: center; gap: 12px; }
+.logo {
+  width: 40px; height: 40px;
+  display: grid; place-items: center;
+  background: var(--grad-main);
+  color: #0b0f14;
+  font-weight: 800;
+  border-radius: 10px;
+  box-shadow: 0 6px 18px rgba(110, 231, 183, 0.25);
+}
+.brand-text h1 { margin: 0; font-size: 18px; font-weight: 800; letter-spacing: 0.01em; }
+.brand-text .tag { color: var(--muted); font-size: 11px; }
+.topbar-actions { display: flex; gap: 10px; align-items: center; }
+
+.hero { padding: 24px 0 12px; }
+.hero h2 { margin: 0 0 8px; font-size: 28px; line-height: 1.2; font-weight: 800; }
+.hero p { margin: 0; color: var(--muted); max-width: 640px; }
+.grad-text {
+  background: var(--grad-main);
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+}
+
+/* ---------- cards ---------- */
+.card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 18px;
+  margin: 16px 0;
+  backdrop-filter: blur(10px);
+}
+.card-head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 10px; gap: 10px;
+}
+.card-head h3 { margin: 0; font-size: 15px; font-weight: 700; }
+
+/* ---------- pills + buttons ---------- */
+.pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px; border-radius: 999px;
+  font-size: 11px; font-weight: 600;
+  border: 1px solid var(--border);
+  background: var(--card-bg-strong);
+  color: var(--muted);
+  letter-spacing: 0.02em;
+}
+.pill.ok { color: var(--ok); border-color: rgba(110, 231, 183, 0.25); }
+.pill.warn { color: var(--warn); border-color: rgba(251, 191, 36, 0.25); }
+.pill.bad { color: var(--bad); border-color: rgba(248, 113, 113, 0.25); }
+
+.btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 14px; border-radius: 10px;
+  background: var(--card-bg-strong);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  font: inherit; font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.08s ease, background 0.12s ease, border-color 0.12s ease;
+}
+.btn:hover { background: rgba(255, 255, 255, 0.08); border-color: rgba(255, 255, 255, 0.16); }
+.btn:active { transform: scale(0.98); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn.small { padding: 5px 10px; font-size: 12px; border-radius: 8px; }
+.btn.subtle { background: transparent; }
+.btn.primary {
+  background: var(--grad-main); color: #0b0f14;
+  border-color: transparent;
+  box-shadow: 0 6px 16px rgba(110, 231, 183, 0.25);
+}
+.btn.primary:hover { filter: brightness(1.05); }
+.btn.danger { color: var(--bad); border-color: rgba(248, 113, 113, 0.35); }
+.btn.danger:hover { background: rgba(248, 113, 113, 0.1); }
+
+.muted { color: var(--muted); }
+.small { font-size: 12px; }
+
+/* ---------- drop zone ---------- */
+.drop-zone {
+  border: 2px dashed rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  padding: 28px;
+  text-align: center;
+  transition: border-color 0.12s ease, background 0.12s ease;
+  background: rgba(255, 255, 255, 0.02);
+}
+.drop-zone.drag-over {
+  border-color: var(--ok);
+  background: rgba(110, 231, 183, 0.08);
+}
+.drop-inner { display: grid; gap: 8px; justify-items: center; }
+.drop-ico { color: var(--muted); opacity: 0.7; }
+.drop-text { font-size: 16px; font-weight: 700; }
+
+/* ---------- magnet form ---------- */
+.row { display: flex; gap: 8px; }
+.row input[type="text"] {
+  flex: 1;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--card-bg-strong);
+  color: var(--fg);
+  font: inherit;
+  outline: none;
+}
+.row input[type="text"]:focus { border-color: rgba(110, 231, 183, 0.4); }
+
+/* ---------- torrent card ---------- */
+.client-stats {
+  display: flex; gap: 16px; flex-wrap: wrap;
+  padding: 8px 0 10px;
+  color: var(--muted); font-size: 12px;
+}
+.client-stats strong { color: var(--fg); font-weight: 600; }
+
+.torrents { display: grid; gap: 12px; }
+.empty { text-align: center; padding: 32px 0; }
+
+.torrent {
+  background: var(--card-bg-strong);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px;
+  animation: rise 0.24s ease;
+}
+@keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+.torrent-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 10px; margin-bottom: 8px;
+}
+.torrent-name { font-weight: 700; word-break: break-all; }
+.torrent-meta { white-space: nowrap; }
+
+.torrent-progress {
+  position: relative;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.torrent-progress > div {
+  height: 100%;
+  width: 0%;
+  background: var(--grad-main);
+  border-radius: 999px;
+  transition: width 0.25s ease;
+}
+.torrent-stats { margin: 8px 0 10px; }
+
+.torrent-share { display: grid; gap: 6px; margin: 8px 0; }
+.share-row { display: flex; align-items: center; gap: 8px; }
+.share-row label { color: var(--muted); font-size: 11px; width: 48px; }
+.share-row input {
+  flex: 1;
+  padding: 6px 8px;
+  font-size: 11px;
+  font-family: 'SF Mono', Monaco, Consolas, monospace;
+  border: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--fg);
+  border-radius: 8px;
+}
+.torrent-files { display: grid; gap: 4px; margin: 8px 0; }
+.torrent-file {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 8px;
+  font-size: 12px;
+}
+.file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60%; }
+.torrent-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+
+/* ---------- misc ---------- */
+.about { padding: 12px 4px; text-align: center; }
+
+/* ---------- responsive ---------- */
+@media (max-width: 600px) {
+  .hero h2 { font-size: 22px; }
+  .topbar { padding: 12px 16px; }
+  main { padding: 0 14px 24px; }
+  .share-row { flex-wrap: wrap; }
+  .share-row label { width: 100%; }
+}

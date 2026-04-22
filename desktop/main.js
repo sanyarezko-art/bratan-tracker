@@ -1,0 +1,350 @@
+// БРАТАН — Electron main process.
+//
+// Runs the full WebTorrent stack (TCP + UDP + uTP + DHT + WebRTC) in Node,
+// and bridges events / commands to the renderer over IPC. The renderer is
+// sandboxed with contextIsolation — it has no Node access.
+
+'use strict';
+
+const path = require('node:path');
+const fs = require('node:fs');
+const os = require('node:os');
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu } = require('electron');
+
+// webtorrent 2.x is ESM-only with top-level await, so it can't be require()'d
+// from our CommonJS main process. Use a one-shot dynamic import.
+let WebTorrentPromise = null;
+function loadWebTorrent() {
+  if (!WebTorrentPromise) {
+    WebTorrentPromise = import('webtorrent').then((mod) => mod.default || mod);
+  }
+  return WebTorrentPromise;
+}
+
+// ---------- single instance (so bratan:// links always hit the existing app) ----------
+
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+  process.exit(0);
+}
+
+// ---------- config ----------
+
+const WT_TRACKERS = [
+  // Hybrid list: WSS for pure-browser peers (if any), HTTP/UDP for desktop
+  // peers (qBittorrent / Transmission / other БРАТАН instances).
+  'udp://tracker.opentrackr.org:1337/announce',
+  'udp://tracker.torrent.eu.org:451/announce',
+  'udp://open.demonii.com:1337/announce',
+  'udp://open.stealth.si:80/announce',
+  'udp://exodus.desync.com:6969/announce',
+  'http://tracker.opentrackr.org:1337/announce',
+  'wss://tracker.openwebtorrent.com',
+  'wss://tracker.webtorrent.dev',
+  'wss://tracker.btorrent.xyz',
+  'wss://tracker.files.fm:7073/announce',
+];
+
+const DEFAULT_DOWNLOAD_DIR = path.join(app.getPath('downloads'), 'Bratan');
+
+function ensureDownloadDir() {
+  try { fs.mkdirSync(DEFAULT_DOWNLOAD_DIR, { recursive: true }); } catch { /* ignore */ }
+}
+
+// ---------- WebTorrent client (lives for the whole app lifetime) ----------
+
+let client = null;
+let clientPromise = null;
+async function getClient() {
+  if (client) return client;
+  if (clientPromise) return clientPromise;
+  clientPromise = (async () => {
+    const WebTorrent = await loadWebTorrent();
+    const c = new WebTorrent({
+      // WebTorrent in Node auto-enables: tcp, utp, dht, lsd, webSeeds.
+      // Bump a couple of knobs for sharing big files over slow networks.
+      maxConns: 100,
+      dht: true,
+      lsd: true,
+      utp: true,
+      tcp: true,
+      natUpnp: true,
+      natPmp: true,
+    });
+    c.on('error', (err) => {
+      // Non-fatal: log and keep going. Tracker connection failures arrive here.
+      console.warn('[wt] client error:', err && err.message ? err.message : err);
+    });
+    client = c;
+    return c;
+  })();
+  return clientPromise;
+}
+
+// ---------- windows ----------
+
+let mainWindow = null;
+
+function createMainWindow() {
+  const win = new BrowserWindow({
+    width: 1000,
+    height: 720,
+    minWidth: 520,
+    minHeight: 560,
+    backgroundColor: '#0b0f14',
+    title: 'БРАТАН',
+    icon: path.join(__dirname, 'assets', 'icon.png'),
+    autoHideMenuBar: true,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      spellcheck: false,
+    },
+  });
+  win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    // External links go to the user's browser, not a new Electron window.
+    if (/^https?:\/\//i.test(url)) shell.openExternal(url);
+    return { action: 'deny' };
+  });
+  mainWindow = win;
+  return win;
+}
+
+// ---------- protocol: bratan://magnet/<magnet URI> ----------
+
+if (!app.isDefaultProtocolClient('bratan')) app.setAsDefaultProtocolClient('bratan');
+
+function magnetFromDeepLink(url) {
+  if (!url || typeof url !== 'string') return null;
+  try {
+    const u = new URL(url);
+    if (u.protocol !== 'bratan:') return null;
+    // Accept bratan://magnet/<magnet:?…> and bratan://?magnet=<urlenc>
+    const raw = u.pathname.replace(/^\/*/, '') || u.hostname || '';
+    if (raw.startsWith('magnet:')) return decodeURIComponent(raw);
+    const q = u.searchParams.get('magnet');
+    if (q) return decodeURIComponent(q);
+  } catch { /* fallthrough */ }
+  return null;
+}
+
+function maybeOpenPendingMagnet(argv) {
+  const found = (argv || []).find((a) => typeof a === 'string' && a.startsWith('bratan:'));
+  if (!found) return;
+  const magnet = magnetFromDeepLink(found);
+  if (!magnet) return;
+  if (mainWindow) mainWindow.webContents.send('deep-link-magnet', magnet);
+  else app.once('browser-window-created', () => {
+    // Small delay so renderer is ready.
+    setTimeout(() => mainWindow?.webContents.send('deep-link-magnet', magnet), 400);
+  });
+}
+
+app.on('second-instance', (_event, argv) => {
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+  }
+  maybeOpenPendingMagnet(argv);
+});
+
+app.on('open-url', (event, url) => {
+  event.preventDefault();
+  const magnet = magnetFromDeepLink(url);
+  if (magnet && mainWindow) mainWindow.webContents.send('deep-link-magnet', magnet);
+});
+
+// ---------- lifecycle ----------
+
+app.whenReady().then(() => {
+  // Minimal menu so Ctrl+C/V/Z work and DevTools is reachable in dev.
+  Menu.setApplicationMenu(Menu.buildFromTemplate([
+    { role: 'editMenu' },
+    { role: 'viewMenu' },
+    { role: 'windowMenu' },
+    {
+      label: 'БРАТАН',
+      submenu: [
+        {
+          label: 'Папка загрузок',
+          click: () => { ensureDownloadDir(); shell.openPath(DEFAULT_DOWNLOAD_DIR); },
+        },
+        { type: 'separator' },
+        { role: 'quit' },
+      ],
+    },
+  ]));
+
+  ensureDownloadDir();
+  createMainWindow();
+  maybeOpenPendingMagnet(process.argv);
+});
+
+app.on('window-all-closed', () => {
+  // macOS convention is to keep the app alive in the dock, but the point of
+  // this app is "close = stop seeding". Quit cleanly on every platform.
+  app.quit();
+});
+
+app.on('before-quit', () => {
+  if (client) {
+    try { client.destroy(() => { /* noop */ }); } catch { /* ignore */ }
+  }
+});
+
+// ---------- IPC: torrents ----------
+
+// Coalesce per-torrent progress pushes to one per 250 ms so the renderer
+// doesn't spend all its time in layout.
+const progressTimers = new Map();
+
+function snapshot(t) {
+  return {
+    infoHash: t.infoHash || null,
+    magnetURI: t.magnetURI || '',
+    name: t.name || '',
+    length: t.length || 0,
+    progress: t.progress || 0,
+    downloadSpeed: t.downloadSpeed || 0,
+    uploadSpeed: t.uploadSpeed || 0,
+    numPeers: t.numPeers || 0,
+    downloaded: t.downloaded || 0,
+    uploaded: t.uploaded || 0,
+    timeRemaining: Number.isFinite(t.timeRemaining) ? t.timeRemaining : null,
+    done: !!t.done,
+    paused: !!t.paused,
+    files: (t.files || []).map((f) => ({ name: f.name, length: f.length, path: f.path })),
+    ready: !!t.ready,
+  };
+}
+
+function attachTorrentListeners(t, webContents) {
+  const push = () => {
+    if (webContents.isDestroyed()) return;
+    webContents.send('torrent:update', snapshot(t));
+  };
+  const schedule = () => {
+    if (progressTimers.has(t.infoHash)) return;
+    progressTimers.set(t.infoHash, setTimeout(() => {
+      progressTimers.delete(t.infoHash);
+      push();
+    }, 250));
+  };
+  t.on('metadata', push);
+  t.on('ready', push);
+  t.on('done', push);
+  t.on('noPeers', schedule);
+  t.on('wire', schedule);
+  t.on('download', schedule);
+  t.on('upload', schedule);
+  t.on('error', (err) => {
+    if (webContents.isDestroyed()) return;
+    webContents.send('torrent:error', { infoHash: t.infoHash, message: String(err?.message || err) });
+  });
+  // Push once so the renderer gets the seed's initial state.
+  setTimeout(push, 0);
+}
+
+ipcMain.handle('torrent:list', async () => {
+  const cli = await getClient();
+  return cli.torrents.map(snapshot);
+});
+
+ipcMain.handle('torrent:seed-paths', async (event, paths) => {
+  if (!Array.isArray(paths) || !paths.length) throw new Error('no paths');
+  const cli = await getClient();
+  return new Promise((resolve, reject) => {
+    const onErr = (err) => reject(err);
+    cli.once('error', onErr);
+    cli.seed(paths, { announce: WT_TRACKERS, path: DEFAULT_DOWNLOAD_DIR }, (torrent) => {
+      cli.removeListener('error', onErr);
+      attachTorrentListeners(torrent, event.sender);
+      resolve(snapshot(torrent));
+    });
+  });
+});
+
+ipcMain.handle('torrent:add-magnet', async (event, magnet) => {
+  if (typeof magnet !== 'string' || !magnet.trim()) throw new Error('empty magnet');
+  const cli = await getClient();
+  return new Promise((resolve, reject) => {
+    let resolved = false;
+    const torrent = cli.add(magnet.trim(), {
+      announce: WT_TRACKERS,
+      path: DEFAULT_DOWNLOAD_DIR,
+    });
+    torrent.on('infoHash', () => {
+      if (resolved) return;
+      resolved = true;
+      attachTorrentListeners(torrent, event.sender);
+      resolve(snapshot(torrent));
+    });
+    torrent.once('error', (err) => {
+      if (resolved) return;
+      resolved = true;
+      reject(err);
+    });
+    setTimeout(() => {
+      if (resolved) return;
+      resolved = true;
+      attachTorrentListeners(torrent, event.sender);
+      resolve(snapshot(torrent));
+    }, 3000);
+  });
+});
+
+ipcMain.handle('torrent:remove', async (_event, infoHash) => {
+  const cli = await getClient();
+  const t = cli.get(infoHash);
+  if (!t) return false;
+  return new Promise((resolve) => {
+    t.destroy({ destroyStore: false }, () => resolve(true));
+  });
+});
+
+ipcMain.handle('torrent:pause', async (_event, infoHash) => {
+  const cli = await getClient();
+  const t = cli.get(infoHash);
+  if (!t) return false;
+  t.pause();
+  return true;
+});
+
+ipcMain.handle('torrent:resume', async (_event, infoHash) => {
+  const cli = await getClient();
+  const t = cli.get(infoHash);
+  if (!t) return false;
+  t.resume();
+  return true;
+});
+
+ipcMain.handle('open-download-dir', () => {
+  ensureDownloadDir();
+  shell.openPath(DEFAULT_DOWNLOAD_DIR);
+});
+
+ipcMain.handle('reveal-file', (_event, absPath) => {
+  if (typeof absPath !== 'string' || !absPath) return false;
+  shell.showItemInFolder(absPath);
+  return true;
+});
+
+ipcMain.handle('pick-files', async () => {
+  const res = await dialog.showOpenDialog(mainWindow, {
+    title: 'Выбрать файлы для раздачи',
+    properties: ['openFile', 'multiSelections'],
+  });
+  if (res.canceled) return [];
+  return res.filePaths;
+});
+
+ipcMain.handle('app:version', () => app.getVersion());
+
+ipcMain.handle('app:paths', () => ({
+  downloads: DEFAULT_DOWNLOAD_DIR,
+  home: os.homedir(),
+}));

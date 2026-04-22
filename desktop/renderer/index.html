@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self';
+                 script-src 'self';
+                 style-src 'self' 'unsafe-inline';
+                 img-src 'self' data:;
+                 connect-src 'none';
+                 object-src 'none';
+                 base-uri 'none';
+                 form-action 'none';" />
+  <title>БРАТАН</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="aurora" aria-hidden="true">
+    <span class="aurora-blob a"></span>
+    <span class="aurora-blob b"></span>
+    <span class="aurora-blob c"></span>
+  </div>
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo" aria-hidden="true">Б</span>
+      <div class="brand-text">
+        <h1>БРАТАН</h1>
+        <span class="tag">анонимный P2P · прямой туннель · без логов</span>
+      </div>
+    </div>
+    <div class="topbar-actions">
+      <button class="btn subtle" id="btn-open-downloads" title="Показать папку загрузок">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-6l-2-2H5a2 2 0 0 0-2 2z"/></svg>
+        Папка
+      </button>
+      <span class="pill ok" id="app-version" title="Версия">v—</span>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <h2>Файлы летят <span class="grad-text">напрямую</span> между компьютерами</h2>
+      <p>
+        Брось файл — клиент соберёт торрент, скопируй magnet или share-ссылку и
+        отправь получателю. Байты идут <strong>напрямую</strong>, без нашего сервера
+        и без логов. Держи приложение открытым, пока хочешь раздавать.
+      </p>
+    </section>
+
+    <section class="card card-create" id="create-card">
+      <div class="card-head">
+        <h3>Создать раздачу</h3>
+        <span class="pill ok">TCP · UDP · DHT · WebRTC</span>
+      </div>
+      <div id="drop-zone" class="drop-zone" aria-label="Брось файлы сюда">
+        <div class="drop-inner">
+          <svg class="drop-ico" viewBox="0 0 24 24" width="46" height="46" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          <div class="drop-text">Брось файлы сюда</div>
+          <div class="drop-sub muted">или</div>
+          <button type="button" class="btn" id="btn-pick-files">Выбрать файлы…</button>
+          <div class="muted small">Файлы не загружаются на сервер — они раздаются прямо с твоего компьютера.</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card" id="add-card">
+      <div class="card-head">
+        <h3>Открыть чужую раздачу</h3>
+        <span class="pill muted">magnet-ссылка</span>
+      </div>
+      <form id="add-magnet-form" class="row">
+        <input
+          id="magnet-input"
+          type="text"
+          autocomplete="off"
+          spellcheck="false"
+          placeholder="magnet:?xt=urn:btih:…"
+          aria-label="Magnet-ссылка"
+        />
+        <button type="submit" class="btn primary">Открыть</button>
+      </form>
+      <p class="muted small">
+        Сюда можно вставлять обычные BitTorrent magnet-ссылки — приложение говорит
+        по TCP/UDP, как десктопный клиент.
+      </p>
+    </section>
+
+    <section class="card" id="torrents-card">
+      <div class="card-head">
+        <h3>Активные раздачи и загрузки</h3>
+        <span id="count-pill" class="pill muted">0</span>
+      </div>
+      <div class="client-stats">
+        <span><strong>Пиры:</strong> <span id="stat-peers">0</span></span>
+        <span><strong>↓</strong> <span id="stat-down">0 Б/с</span></span>
+        <span><strong>↑</strong> <span id="stat-up">0 Б/с</span></span>
+      </div>
+      <div id="torrents" class="torrents" aria-live="polite">
+        <div class="empty muted" id="torrents-empty">Пока пусто. Брось файл или вставь magnet выше.</div>
+      </div>
+    </section>
+
+    <section class="about muted small">
+      <p>
+        БРАТАН работает как обычный BitTorrent-клиент: TCP / UDP / uTP / DHT / LSD +
+        WebRTC для связки с браузерами. Никакой аналитики и серверов — только твой
+        компьютер и компьютер получателя.
+      </p>
+    </section>
+  </main>
+
+  <template id="torrent-tpl">
+    <article class="torrent" data-infohash="">
+      <div class="torrent-head">
+        <div class="torrent-name"></div>
+        <div class="torrent-meta muted small"></div>
+      </div>
+      <div class="torrent-progress"><div></div></div>
+      <div class="torrent-stats muted small"></div>
+      <div class="torrent-share">
+        <div class="share-row">
+          <label>Magnet</label>
+          <input class="magnet-field" type="text" readonly />
+          <button type="button" class="btn small copy-magnet">Скопировать</button>
+        </div>
+      </div>
+      <div class="torrent-files"></div>
+      <div class="torrent-actions">
+        <button type="button" class="btn small reveal-file" hidden>Показать в папке</button>
+        <button type="button" class="btn small danger remove-torrent">Удалить</button>
+      </div>
+    </article>
+  </template>
+
+  <script src="renderer.js"></script>
+</body>
+</html>
