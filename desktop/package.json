@@ -1,0 +1,79 @@
+{
+  "name": "bratan-tracker-desktop",
+  "productName": "БРАТАН",
+  "version": "0.1.0",
+  "description": "Анонимный P2P-туннель для обмена файлами. Без сервера, без логов.",
+  "private": true,
+  "main": "main.js",
+  "homepage": "https://github.com/sanyarezko-art/bratan-tracker",
+  "author": {
+    "name": "БРАТАН-трекер"
+  },
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder",
+    "dist:win": "electron-builder --win",
+    "dist:mac": "electron-builder --mac",
+    "dist:linux": "electron-builder --linux"
+  },
+  "dependencies": {
+    "webtorrent": "^2.5.1"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "io.github.sanyarezko-art.bratan",
+    "productName": "Bratan",
+    "artifactName": "bratan-${version}-${os}-${arch}.${ext}",
+    "directories": {
+      "output": "dist",
+      "buildResources": "assets"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer/**/*",
+      "assets/**/*",
+      "!node_modules/**/test/**",
+      "!node_modules/**/tests/**",
+      "!node_modules/**/*.md",
+      "!node_modules/**/*.ts",
+      "!node_modules/**/*.map"
+    ],
+    "protocols": [
+      {
+        "name": "Bratan magnet",
+        "schemes": ["bratan"]
+      }
+    ],
+    "win": {
+      "target": [
+        { "target": "nsis", "arch": ["x64"] },
+        { "target": "portable", "arch": ["x64"] }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false
+    },
+    "mac": {
+      "target": [
+        { "target": "dmg", "arch": ["x64", "arm64"] }
+      ],
+      "category": "public.app-category.utilities",
+      "identity": null
+    },
+    "linux": {
+      "target": [
+        { "target": "AppImage", "arch": ["x64"] }
+      ],
+      "category": "Network"
+    },
+    "publish": null
+  }
+}

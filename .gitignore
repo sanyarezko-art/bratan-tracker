@@ -5,3 +5,12 @@ node_modules/
 *.log
 .env
 .env.*
+
+# Electron build output
+desktop/dist/
+desktop/out/
+desktop/.webpack/
+
+# OS junk
+Thumbs.db
+*.swp
